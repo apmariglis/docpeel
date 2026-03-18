@@ -17,9 +17,9 @@ import io
 import json
 import re
 
-from pdfextract.pricing import mistral_cost
-from pdfextract.providers.base import Usage
-from pdfextract.providers.base import _with_retry
+from docpeel.pricing import mistral_cost
+from docpeel.providers.base import Usage
+from docpeel.providers.base import _with_retry
 from PIL import Image
 
 # ── Structuring prompt ────────────────────────────────────────────────────────

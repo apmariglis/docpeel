@@ -6,11 +6,11 @@ output — no post-hoc JSON parsing needed. Content-filter blocks surface as
 anthropic.BadRequestError and are caught by the fallback chain in VisionExtractor.
 """
 
-from pdfextract.pricing import anthropic_cost
-from pdfextract.providers.base import PAGE_EXTRACTION_SCHEMA
-from pdfextract.providers.base import Usage
-from pdfextract.providers.base import VisionProvider
-from pdfextract.providers.base import _with_retry
+from docpeel.pricing import anthropic_cost
+from docpeel.providers.base import PAGE_EXTRACTION_SCHEMA
+from docpeel.providers.base import Usage
+from docpeel.providers.base import VisionProvider
+from docpeel.providers.base import _with_retry
 from PIL import Image
 
 
@@ -78,7 +78,7 @@ class AnthropicProvider(VisionProvider):
         return tool_block.input, self._parse_usage(resp)
 
     def _image_block(self, image: Image.Image) -> dict:
-        from pdfextract.image_utils import to_b64_safe
+        from docpeel.image_utils import to_b64_safe
 
         return {
             "type": "image",

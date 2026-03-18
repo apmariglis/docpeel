@@ -2,15 +2,15 @@
 Command-line entry point for the PDF extractor.
 
 Usage:
-    python -m pdfextract [OPTIONS] PDF
+    python -m docpeel [OPTIONS] PDF
 
     # Vision path (Anthropic or Gemini — model sees the page image directly)
-    python -m pdfextract PDF --vision-model claude-sonnet-4-0
-    python -m pdfextract PDF --vision-model gemini-2.5-flash
+    python -m docpeel PDF --vision-model claude-sonnet-4-0
+    python -m docpeel PDF --vision-model gemini-2.5-flash
 
     # OCR + structure path (dedicated OCR engine, then an LLM structures the text)
-    python -m pdfextract PDF --ocr mistral --structure-model mistral-small-latest
-    python -m pdfextract PDF --ocr mistral --structure-model gemini-2.5-flash-lite
+    python -m docpeel PDF --ocr mistral --structure-model mistral-small-latest
+    python -m docpeel PDF --ocr mistral --structure-model gemini-2.5-flash-lite
 """
 
 import argparse
@@ -19,13 +19,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from pdfextract.extraction import iter_pages
-from pdfextract.extraction import page_count
-from pdfextract.output import OUTPUT_FOLDER
-from pdfextract.output import resolve_run_folder
-from pdfextract.output import stream_outputs
-from pdfextract.output import write_report
-from pdfextract.providers.provider_factory import build_provider
+from docpeel.extraction import iter_pages
+from docpeel.extraction import page_count
+from docpeel.output import OUTPUT_FOLDER
+from docpeel.output import resolve_run_folder
+from docpeel.output import stream_outputs
+from docpeel.output import write_report
+from docpeel.providers.provider_factory import build_provider
 
 load_dotenv()
 

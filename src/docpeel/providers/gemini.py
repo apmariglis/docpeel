@@ -9,11 +9,11 @@ machinery treats them identically to Anthropic's BadRequestError.
 
 import json
 
-from pdfextract.pricing import gemini_cost
-from pdfextract.providers.base import PAGE_EXTRACTION_SCHEMA
-from pdfextract.providers.base import Usage
-from pdfextract.providers.base import VisionProvider
-from pdfextract.providers.base import _with_retry
+from docpeel.pricing import gemini_cost
+from docpeel.providers.base import PAGE_EXTRACTION_SCHEMA
+from docpeel.providers.base import Usage
+from docpeel.providers.base import VisionProvider
+from docpeel.providers.base import _with_retry
 from PIL import Image
 
 # ── Internal filter-error type ────────────────────────────────────────────────

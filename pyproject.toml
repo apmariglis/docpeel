@@ -1,5 +1,5 @@
 [project]
-name = "pdfextract"
+name = "docpeel"
 version = "0.1.0"
 description = ""
 authors = [
@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [tool.poetry]
-packages = [{include = "pdfextract", from = "src"}]
+packages = [{include = "docpeel", from = "src"}]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

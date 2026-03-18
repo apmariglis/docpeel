@@ -36,15 +36,15 @@ from pdf2image import convert_from_path
 from pdf2image import pdfinfo_from_path
 from PIL import Image
 
-from pdfextract.image_utils import obfuscate
-from pdfextract.image_utils import split_quadrants
-from pdfextract.prompts import PAGE_EXTRACT_PROMPT
-from pdfextract.prompts import PARAPHRASE_PROMPT
-from pdfextract.prompts import STITCH_PROMPT
-from pdfextract.prompts import quadrant_extract_prompt
-from pdfextract.providers.base import Usage
-from pdfextract.providers.base import VisionProvider
-from pdfextract.providers.mistral import MistralProvider
+from docpeel.image_utils import obfuscate
+from docpeel.image_utils import split_quadrants
+from docpeel.prompts import PAGE_EXTRACT_PROMPT
+from docpeel.prompts import PARAPHRASE_PROMPT
+from docpeel.prompts import STITCH_PROMPT
+from docpeel.prompts import quadrant_extract_prompt
+from docpeel.providers.base import Usage
+from docpeel.providers.base import VisionProvider
+from docpeel.providers.mistral import MistralProvider
 
 # ── Shared result helpers ─────────────────────────────────────────────────────
 

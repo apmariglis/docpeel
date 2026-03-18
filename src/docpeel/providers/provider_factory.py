@@ -11,11 +11,11 @@ Two paths:
                  structure model may be Mistral or Gemini).
 """
 
-from pdfextract.providers.anthropic import AnthropicProvider
-from pdfextract.providers.base import VisionProvider
-from pdfextract.providers.gemini import GeminiProvider
-from pdfextract.providers.mistral import MistralProvider
-from pdfextract.providers.mistral import Usage
+from docpeel.providers.anthropic import AnthropicProvider
+from docpeel.providers.base import VisionProvider
+from docpeel.providers.gemini import GeminiProvider
+from docpeel.providers.mistral import MistralProvider
+from docpeel.providers.mistral import Usage
 
 # Model name prefixes → provider label
 _VISION_PREFIXES: dict[str, str] = {
@@ -83,9 +83,9 @@ def _infer_vision_provider(model: str) -> str:
 #         import os
 
 #         import google.genai as genai
-#         from pdfextract.pricing import gemini_cost
-#         from pdfextract.providers.base import Usage
-#         from pdfextract.providers.mistral import _MISTRAL_STRUCTURE_PROMPT
+#         from docpeel.pricing import gemini_cost
+#         from docpeel.providers.base import Usage
+#         from docpeel.providers.mistral import _MISTRAL_STRUCTURE_PROMPT
 
 #         client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
@@ -143,7 +143,7 @@ def _infer_vision_provider(model: str) -> str:
 
 
 def _build_structure_fn(structure_model: str):
-    from pdfextract.providers.mistral import _MISTRAL_STRUCTURE_PROMPT
+    from docpeel.providers.mistral import _MISTRAL_STRUCTURE_PROMPT
 
     provider_name = _infer_vision_provider(structure_model)
 

@@ -1,4 +1,4 @@
-# pdfextract
+# docpeel
 
 A Python CLI tool for extracting text and tables from PDFs using vision LLMs (Claude, Gemini, and Mistral). Designed for document digitisation pipelines where accuracy and structured output matter more than speed.
 
@@ -140,11 +140,11 @@ sudo apt-get install poppler-utils
 # and add the bin/ folder to your PATH
 ```
 
-**Install pdfextract:**
+**Install docpeel:**
 
 ```bash
-git clone https://github.com/<you>/pdfextract.git
-cd pdfextract
+git clone https://github.com/<you>/docpeel.git
+cd docpeel
 pip install -e .
 ```
 
@@ -165,13 +165,13 @@ Only the key for the provider you intend to use is required.
 ## Usage
 
 ```bash
-pdfextract path/to/file.pdf [OPTIONS]
+docpeel path/to/file.pdf [OPTIONS]
 ```
 
 Or equivalently:
 
 ```bash
-python -m pdfextract path/to/file.pdf [OPTIONS]
+python -m docpeel path/to/file.pdf [OPTIONS]
 ```
 
 ### Options
@@ -194,16 +194,16 @@ python -m pdfextract path/to/file.pdf [OPTIONS]
 
 ```bash
 # Anthropic with default model
-pdfextract book.pdf
+docpeel book.pdf
 
 # Gemini Flash at higher DPI for dense tables
-pdfextract book.pdf --provider gemini --model gemini-2.5-flash --dpi 200
+docpeel book.pdf --provider gemini --model gemini-2.5-flash --dpi 200
 
 # Mistral (cheapest option, good for clean scans)
-pdfextract book.pdf --provider mistral
+docpeel book.pdf --provider mistral
 
 # Anthropic Haiku for lower cost
-pdfextract book.pdf --model claude-haiku-4-5-20251001
+docpeel book.pdf --model claude-haiku-4-5-20251001
 ```
 
 ---
@@ -211,7 +211,7 @@ pdfextract book.pdf --model claude-haiku-4-5-20251001
 ## Module structure
 
 ```
-pdfextract/
+docpeel/
 ├── cli.py                    Argument parsing and run orchestration
 ├── extraction.py             Per-page orchestration: VisionExtractor, MistralExtractor, iter_pages
 ├── image_utils.py            Quadrant splitting, JPEG encoding, obfuscation
@@ -233,9 +233,9 @@ pdfextract/
 The package can also be used directly in Python:
 
 ```python
-from pdfextract.providers.provider_factory import build_provider
-from pdfextract.extraction import iter_pages
-from pdfextract.output import stream_outputs, write_report
+from docpeel.providers.provider_factory import build_provider
+from docpeel.extraction import iter_pages
+from docpeel.output import stream_outputs, write_report
 from pathlib import Path
 
 pdf = Path("book.pdf")

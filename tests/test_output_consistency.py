@@ -57,7 +57,7 @@ def _run_stream(pages: list[dict], tmp_path: Path) -> tuple[dict, list[dict]]:
     Call stream_outputs with a fake PDF path pointing at tmp_path.
     Monkey-patches OUTPUT_FOLDER so all output lands in tmp_path.
     """
-    import src.pdfextract.output as out_mod
+    import src.docpeel.output as out_mod
 
     original_output_folder = out_mod.OUTPUT_FOLDER
     out_mod.OUTPUT_FOLDER = tmp_path
