@@ -7,6 +7,7 @@ to disk page-by-page, so the full results list never needs to live in RAM.
 """
 
 import json
+import re
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -16,18 +17,16 @@ OUTPUT_FOLDER = Path("output")
 
 def _resolve_output_folder(pdf_path: Path, provider_name: str) -> Path:
     """
-    Compute a per-run output folder for debugging purposes.
+    Compute a per-run output folder.
 
-    Format: output/<provider>_<pdf-stem>_<n>
+    Format: output/<provider>__<pdf-stem>[<n>]
     where <n> is one greater than the highest existing run number for
     this provider+pdf combination, starting at 1 if none exist.
-
-    This is intentionally separate from the main output flow so it can
-    be removed or replaced without touching anything else.
+    Double underscore separates model(s) from PDF stem; brackets isolate run number.
     """
     base = OUTPUT_FOLDER
     pdf_stem = pdf_path.stem
-    prefix = f"{provider_name}_{pdf_stem}_"
+    prefix = f"{provider_name}__{pdf_stem}["
 
     existing = (
         [
@@ -35,66 +34,75 @@ def _resolve_output_folder(pdf_path: Path, provider_name: str) -> Path:
             for d in base.iterdir()
             if d.is_dir()
             and d.name.startswith(prefix)
-            and d.name[len(prefix) :].isdigit()
+            and re.fullmatch(r"\d+", d.name[len(prefix):-1])
+            and d.name.endswith("]")
         ]
         if base.exists()
         else []
     )
 
-    next_n = max((int(d.name[len(prefix) :]) for d in existing), default=0) + 1
-    return base / f"{prefix}{next_n}"
+    next_n = (
+        max((int(d.name[len(prefix):-1]) for d in existing), default=0) + 1
+    )
+    return base / f"{prefix}{next_n}]"
 
 
 def _page_note_md(r: dict) -> str:
     """Build the italicised extraction note for the combined markdown."""
-    note = "*[Extracted via quadrant-split fallback"
+    note = "*[Extracted via quadrant-split"
     paraphrased = r.get("paraphrased")
     if paraphrased == "full":
         note += " — ⚠️ full page paraphrased; manual review recommended"
     elif paraphrased == "partial":
         note += " — ⚠️ some chunks paraphrased; manual review recommended"
     elif r.get("chunk_warnings"):
-        note += " — some chunks skipped"
+        note += " — ⚠️ some chunks skipped"
     note += "]*"
     return note
 
 
-def _page_status(r: dict) -> str:
+def _method_col(r: dict) -> str:
+    """Human-readable extraction method for the report table."""
+    if r.get("skip"):
+        return "—"
     method = r.get("extraction_method", "full-page")
-    if r.get("error") and method == "quadrant-split":
-        return "quadrant-split + image-stitch (partial failure)"
     if r.get("error"):
-        return "full-page (failed)"
-    if method == "quadrant-split":
-        paraphrased = r.get("paraphrased")
-        suffix = f" + {paraphrased}" if paraphrased else ""
-        return f"quadrant-split + image-stitch{suffix}"
-    return "full-page"
+        # Show the correct method label even for failed pages
+        return method
+    return method
 
 
-def _page_notes(r: dict) -> str:
-    notes = []
+def _outcome_col(r: dict) -> str:
+    """Human-readable outcome for the report table."""
+    if r.get("skip"):
+        return f"⏭ skipped ({r.get('skip_reason', 'unknown')})"
+    if r.get("error"):
+        return "⛔ failed"
     paraphrased = r.get("paraphrased")
-    if paraphrased == "full":
-        notes.append("⚠️ full page paraphrased")
-    elif paraphrased == "partial":
-        notes.append("⚠️ partial paraphrase")
-    skipped = [
+    chunk_warnings = r.get("chunk_warnings", [])
+    skipped_chunks = [
         w
-        for w in r.get("chunk_warnings", [])
+        for w in chunk_warnings
         if "blocked" in w and "paraphrase" not in w and "skipped" in w
     ]
-    if skipped:
-        labels = []
-        for w in skipped:
-            for candidate in ["top-left", "top-right", "bottom-left", "bottom-right"]:
-                if candidate in w:
-                    labels.append(candidate)
-                    break
-        notes.append(
-            f"⛔ skipped: {', '.join(labels) if labels else str(len(skipped))}"
-        )
-    return "; ".join(notes) if notes else "—"
+    if paraphrased == "full":
+        return "⚠️ paraphrased"
+    if paraphrased == "partial":
+        if skipped_chunks:
+            return "⛔ chunks missing + partial paraphrase"
+        return "⚠️ partial paraphrase"
+    if skipped_chunks:
+        return "⛔ chunks missing"
+    return "✅ ok"
+
+
+def resolve_run_folder(pdf_path: Path, provider_name: str) -> Path:
+    """
+    Return the output folder path that will be used for a given pdf + provider
+    combination, without creating it. Useful for printing the destination early
+    in the CLI before extraction begins.
+    """
+    return _resolve_output_folder(pdf_path, provider_name)
 
 
 def stream_outputs(
@@ -137,35 +145,77 @@ def stream_outputs(
         json_file.open("w", encoding="utf-8") as json_f,
     ):
         for r in pages:
+            tables: list[dict] = r.get("tables") or []
+            is_skip = r.get("skip", False)
+
             # ── Per-page markdown (with YAML frontmatter) ────────────────────
             page_md = pages_dir / f"page_{r['page']:03d}.md"
             error_line = f"error: {r['error']}\n" if r.get("error") else ""
             title_line = f"title: {r['title']}\n" if r.get("title") else ""
+            table_count_line = f"tables: {len(tables)}\n" if tables else ""
+            skip_line = (
+                f"skip: true\nskip_reason: {r['skip_reason']}\n" if is_skip else ""
+            )
+            watermarks = r.get("watermarks") or []
+            watermark_lines = (
+                "watermarks:\n" + "".join(f"  - {w}\n" for w in watermarks)
+                if watermarks
+                else ""
+            )
             frontmatter = (
                 f"---\n"
                 f"pdf_page: {r['page']}\n"
                 f"book_page: {r['book_page'] if r['book_page'] is not None else 'null'}\n"
                 f"source: {pdf_path.name}\n"
                 f"{title_line}"
+                f"{table_count_line}"
+                f"{watermark_lines}"
+                f"{skip_line}"
                 f"{error_line}"
                 f"---\n\n"
             )
-            page_md.write_text(frontmatter + r["text"], encoding="utf-8")
+
+            if is_skip:
+                # Skipped pages get a minimal stub — no body content
+                page_md.write_text(frontmatter, encoding="utf-8")
+            else:
+                # Build body: prose text followed by all tables in order
+                parts = [r["text"]]
+                for tbl in tables:
+                    title = tbl.get("title") or ""
+                    caption = tbl.get("caption", "").strip()
+                    if title and caption:
+                        label = f"{title} — {caption}"
+                    else:
+                        label = title or caption
+                    if label:
+                        parts.append(f"<!-- table: {label} -->")
+                    content = tbl.get("content", "").strip()
+                    if content:
+                        parts.append(content)
+                body = "\n\n".join(filter(None, parts))
+                page_md.write_text(frontmatter + body, encoding="utf-8")
 
             # ── Combined markdown (append) ────────────────────────────────────
             book_page_str = (
                 str(r["book_page"]) if r["book_page"] is not None else "unknown"
             )
-            method_str = _page_status(r)
-            mid_content = f"PDF page: {r['page']:<6} book page: {book_page_str:<6} extraction: {method_str}"
+            mid_content = (
+                f"PDF page: {r['page']:<6} book page: {book_page_str:<6} "
+                f"method: {_method_col(r)}  outcome: {_outcome_col(r)}"
+            )
             separator = f"\n<!-- ↓ {mid_content} -->\n\n"
             md_f.write(separator)
-            if r.get("title"):
-                md_f.write(f"# {r['title']}\n\n")
-            if r.get("extraction_method") == "quadrant-split":
-                md_f.write(_page_note_md(r) + "\n\n")
-            md_f.write(r["text"])
-            md_f.write("\n")
+
+            if is_skip:
+                md_f.write(f"<!-- skipped: {r.get('skip_reason', 'unknown')} -->\n")
+            else:
+                if r.get("title"):
+                    md_f.write(f"# {r['title']}\n\n")
+                if r.get("extraction_method") == "quadrant-split":
+                    md_f.write(_page_note_md(r) + "\n\n")
+                md_f.write(body)
+                md_f.write("\n")
             md_f.flush()
 
             # ── Newline-delimited JSON (append) ───────────────────────────────
@@ -191,6 +241,7 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
     report_path = run_folder / "report.md"
 
     n_pages = len(results)
+    skipped = [r for r in results if r.get("skip")]
     failed = [
         r
         for r in results
@@ -201,16 +252,33 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
         for r in results
         if r.get("error") and r.get("extraction_method") == "quadrant-split"
     ]
+    chunk_missing = [
+        r
+        for r in results
+        if not r.get("error")
+        and not r.get("skip")
+        and any(
+            "blocked" in w and "paraphrase" not in w and "skipped" in w
+            for w in r.get("chunk_warnings", [])
+        )
+    ]
     quad_ok = [
         r
         for r in results
         if not r.get("error") and r.get("extraction_method") == "quadrant-split"
     ]
-    successful = [r for r in results if not r.get("error")]
+    ocr_ok = [
+        r
+        for r in results
+        if not r.get("error") and r.get("extraction_method") == "ocr+structure"
+    ]
+    successful = [r for r in results if not r.get("error") and not r.get("skip")]
     fp_ok = [
         r
         for r in results
-        if r.get("extraction_method") == "full-page" and not r.get("error")
+        if r.get("extraction_method") == "full-page"
+        and not r.get("error")
+        and not r.get("skip")
     ]
 
     total_input = sum(r["input_tokens"] for r in results)
@@ -223,6 +291,11 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
     model = results[0]["model"] if results else "n/a"
     dpi = results[0]["dpi"] if results else "n/a"
 
+    # Mistral-specific cost split (only present when ocr_cost_usd field exists)
+    mistral_pages = [r for r in results if "ocr_cost_usd" in r]
+    total_ocr_cost = sum(r["ocr_cost_usd"] for r in mistral_pages)
+    total_structure_cost = sum(r["structure_cost_usd"] for r in mistral_pages)
+
     avg_time = total_time / n_pages if n_pages else 0
     cost_per_page = total_cost / n_pages if n_pages else 0
     cost_per_successful = total_cost / len(successful) if successful else 0
@@ -231,14 +304,14 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
     slowest = max(results, key=lambda r: r["elapsed_seconds"])
 
     page_rows = "\n".join(
-        "| {pg} | {st} | {inp} | {out} | {cost} | {t} | {n} |".format(
+        "| {pg} | {method} | {outcome} | {inp} | {out} | {cost} | {t} |".format(
             pg=r["page"],
-            st=_page_status(r),
+            method=_method_col(r),
+            outcome=_outcome_col(r),
             inp=f"{r['input_tokens']:,}",
             out=f"{r['output_tokens']:,}",
             cost=f"${r['cost_usd']:.6f}",
             t=f"{r['elapsed_seconds']:.1f}s",
-            n=_page_notes(r),
         )
         for r in results
     )
@@ -249,6 +322,20 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
             f"| Cache-write tokens | {total_cw:,} |",
             f"| Cache-read tokens  | {total_cr:,} |",
         ]
+
+    # Mistral cost breakdown rows (only shown for Mistral runs)
+    mistral_cost_rows = []
+    if mistral_pages:
+        mistral_cost_rows = [
+            f"| OCR cost (mistral-ocr-latest) | ${total_ocr_cost:.6f} |",
+            f"| Structure cost (chat model) | ${total_structure_cost:.6f} |",
+        ]
+
+    ocr_row = (
+        [f"| Pages extracted (ocr+structure) | {len(ocr_ok)} |"]
+        if ocr_ok or any(r.get("extraction_method") == "ocr+structure" for r in results)
+        else []
+    )
 
     lines = [
         "# PDF Extraction Report",
@@ -266,15 +353,19 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
         "|---|---|",
         f"| Render DPI | {dpi} |",
         f"| Pages total | {n_pages} |",
+        f"| Pages skipped | {len(skipped)} |",
         f"| Pages extracted (full-page) | {len(fp_ok)} |",
         f"| Pages extracted (quadrant-split) | {len(quad_ok)} |",
+        *ocr_row,
         f"| Pages partially extracted | {len(partial)} |",
+        f"| Pages with missing chunks | {len(chunk_missing)} |",
         f"| Pages failed entirely | {len(failed)} |",
         f"| Total input tokens | {total_input:,} |",
         f"| Total output tokens | {total_output:,} |",
         *cache_rows,
         f"| **Total tokens** | **{total_tokens:,}** |",
         f"| **Total cost (USD)** | **${total_cost:.6f}** |",
+        *mistral_cost_rows,
         f"| Cost per page (all) | ${cost_per_page:.6f} |",
         f"| Cost per successful page | ${cost_per_successful:.6f} |",
         f"| Avg tokens per successful page | {tokens_per_page:,.0f} |",
@@ -285,9 +376,41 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
         "",
         "---",
         "",
+    ]
+
+    # ── Extraction Failures section (only shown when there are failures) ──────
+    if failed or partial or chunk_missing:
+        all_failed = failed + partial
+        failure_rows = "\n".join(
+            f"| {r['page']} | {r.get('extraction_method', 'full-page')} "
+            f"| {r.get('error', '—')} |"
+            for r in sorted(all_failed, key=lambda r: r["page"])
+        )
+        missing_rows = "\n".join(
+            f"| {r['page']} | quadrant-split "
+            f"| {'; '.join(w for w in r.get('chunk_warnings', []) if 'skipped' in w)} |"
+            for r in sorted(chunk_missing, key=lambda r: r["page"])
+        )
+        all_rows = "\n".join(filter(None, [failure_rows, missing_rows]))
+        lines += [
+            "## ⛔ Extraction Failures",
+            "",
+            "> **These pages have content MISSING from the output. "
+            "The extracted data is incomplete. "
+            "Manual intervention or a re-run is required for the pages listed below.**",
+            "",
+            "| Page | Method | Detail |",
+            "|---|---|---|",
+            all_rows,
+            "",
+            "---",
+            "",
+        ]
+
+    lines += [
         "## Per-Page Breakdown",
         "",
-        "| Page | Status | Input tokens | Output tokens | Cost (USD) | Time | Notes |",
+        "| Page | Method | Outcome | Input tokens | Output tokens | Cost (USD) | Time |",
         "|---|---|---|---|---|---|---|",
         page_rows,
         "",
@@ -304,8 +427,36 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
         "",
         "---",
         "",
+        "## Glossary",
+        "",
+        "*This section is static documentation, not specific to this run.*",
+        "",
+        "### Extraction Method",
+        "",
+        "| Method | Description |",
+        "|---|---|",
+        "| `full-page` | The page was sent as a single image to the LLM and extracted in one API call. This is the default fast path. |",
+        "| `quadrant-split` | The full-page call was blocked by the content filter. The page was split into 4 quadrant images, each extracted separately, then merged by a final LLM call that also receives the original page image for reading-order verification and error correction. Costs 5 API calls instead of 1. |",
+        "| `ocr+structure` | Mistral two-step pipeline: `mistral-ocr-latest` extracts raw markdown from the page image (billed per page), then a chat model converts that markdown into the structured schema (billed per token). No content filter, so no fallback chain. |",
+        "| `—` | No extraction attempted (page was intentionally skipped). |",
+        "",
+        "### Outcome",
+        "",
+        "| Outcome | Description |",
+        "|---|---|",
+        "| ✅ ok | Extracted cleanly with no issues. Content is verbatim from the source. |",
+        "| ⚠️ paraphrased | The LLM was blocked from verbatim transcription (copyright / content filter) and rewrote the entire page in different words. Factual content is preserved but exact wording differs from the original. Manual review recommended. |",
+        "| ⚠️ partial paraphrase | Same as above but only for some quadrants; the remainder were transcribed verbatim. |",
+        "| ⛔ chunks missing | One or more quadrants were blocked even on paraphrase and dropped entirely. Content from this page is **definitively missing** from the output — treat this the same as a failed page. |",
+        "| ⛔ chunks missing + partial paraphrase | Combination of the two above — some chunks dropped, others paraphrased. |",
+        "| ⏭ skipped | Page intentionally excluded from the output. Reasons: `table_of_contents` — lists chapter titles and page numbers; `index` — alphabetical term index at the back; `blank` — empty or 'intentionally left blank'; `illustration_only` — full-page artwork with no text; `title_page` — only the book or series title; `part_divider` — decorative page announcing a part or section number. |",
+        "| ⛔ failed | An unrecoverable error prevented extraction. This page has **no content** in the output. The extracted data is incomplete — re-run or manually extract this page. |",
+        "",
+        "---",
+        "",
         "*Cost figures are estimates based on public pricing fetched at run-time.*",
         "*Quadrant-split pages incur 5 API calls (4 chunks + 1 stitch) instead of 1.*",
+        "*Mistral ocr+structure pages incur 2 separate charges: OCR billed per page, structuring billed per token.*",
     ]
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
