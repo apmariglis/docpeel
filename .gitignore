@@ -32,5 +32,8 @@ venv/
 # Ruff stuff:
 .ruff_cache/
 
-#custom
-output/
+# uv
+uv.lock
+
+# Personal notes
+NOTES

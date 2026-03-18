@@ -1,7 +1,7 @@
 [project]
 name = "docpeel"
 version = "0.1.0"
-description = ""
+description = "Extract text and tables from PDFs using vision LLMs (Claude, Gemini, Mistral)"
 authors = [
     {name = "apmariglis",email = "apmariglis@gmail.com"}
 ]
