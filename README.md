@@ -143,7 +143,7 @@ sudo apt-get install poppler-utils
 **Install docpeel:**
 
 ```bash
-git clone https://github.com/<you>/docpeel.git
+git clone https://github.com/apmariglis/docpeel.git
 cd docpeel
 pip install -e .
 ```
