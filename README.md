@@ -1,29 +1,28 @@
-# PDFExtract
+# pdfextract
 
-A Python package for extracting text and tables from PDFs using vision LLMs (Claude and Gemini). Designed for RAG ingestion pipelines where accuracy and structured output matter more than speed.
+A Python CLI tool for extracting text and tables from PDFs using vision LLMs (Claude, Gemini, and Mistral). Designed for document digitisation pipelines where accuracy and structured output matter more than speed.
 
 ## Why vision LLMs?
 
-Traditional PDF parsers (pdfminer, PyMuPDF, etc.) fail on scanned PDFs, multi-column layouts, complex tables, and pages that mix text with illustrations. Vision LLMs read the page as an image, handling all of these naturally. The tradeoff is cost and latency — this tool is optimised to minimise both while maximising extraction quality.
-
----
+Traditional PDF parsers (pdfminer, PyMuPDF, etc.) fail on scanned PDFs, multi-column layouts, complex tables, and pages that mix text with illustrations. Vision LLMs read the page as an image, handling all of these naturally. The tradeoff is cost and latency — this tool is optimised to minimise both while maximising extraction quality.---
 
 ## Features
 
 - **Multi-stage fallback chain** per page — escalates automatically from fast single-call extraction to quadrant splitting, obfuscation, and paraphrase fallback when content filters or layout complexity intervene
 - **Image-assisted stitching** — after quadrant extraction, a final LLM call sees both the original full-page image and the four quadrant transcriptions together, correcting reading order and reassembling split tables
-- **Structured JSONL output** — single source of truth for downstream RAG ingestion, with per-page metadata: `book_page`, `title`, `extraction_method`, `paraphrased`, `cost_usd`, `dpi`, and more
+- **Structured JSONL output** — one record per page with full metadata: `book_page`, `title`, `tables`, `extraction_method`, `paraphrased`, `cost_usd`, and more; ready for downstream processing or search indexing
+- **Table extraction** — tables are lifted out of the page text into a structured `tables` array with a descriptive caption per table, appended after the page prose in rendered markdown
 - **Page title extraction** — prominent display headings (chapter titles, appendix labels, etc.) are separated from body text into a dedicated `title` field
 - **JPEG image encoding** — pages are sent as JPEG rather than PNG, reducing payload size 5–10× for scanned content with negligible OCR quality loss
 - **Memory-efficient streaming** — one page image lives in RAM at a time; results stream to disk as they arrive
 - **Live cost tracking** — per-page and total cost estimates fetched from litellm's pricing index at run time
-- **Provider-agnostic** — swap between Anthropic and Gemini with a single CLI flag; the extraction logic is identical for both
+- **Three providers** — swap between Anthropic, Gemini, and Mistral with a single CLI flag; structured output is enforced natively for each (tool-calling, response schema, and prompted JSON respectively)
 
 ---
 
 ## Fallback chain
 
-Each page goes through the following stages, stopping as soon as a clean result is obtained:
+Applies to Anthropic and Gemini providers. Each page goes through the following stages, stopping as soon as a clean result is obtained:
 
 ```
 Stage 1  Full-page verbatim extraction (1 API call)
@@ -40,13 +39,15 @@ Stage 2  Quadrant split (4 API calls, one per quadrant)
 Stage 3  Full-page paraphrase — flagged for manual review
 ```
 
+Mistral uses a two-step OCR + structuring pipeline (`mistral-ocr-latest` → cheap chat model) with no fallback chain — Mistral OCR has no content filter.
+
 Pages that are image-only (no extractable text) are detected at the quadrant stage and short-circuited cleanly with an empty text record rather than wasting API calls.
 
 ---
 
 ## Output
 
-For each run, four output artefacts are written under `output/<provider>_<pdf-stem>_<n>/`:
+For each run, four output artefacts are written under `output/<provider>_<pdf-stem>_<n>/`. The JSONL output is designed to be straightforward to ingest into search indexes, vector databases, or RAG pipelines, but the tool works equally well as a standalone PDF digitiser.
 
 | File | Description |
 |---|---|
@@ -60,11 +61,21 @@ For each run, four output artefacts are written under `output/<provider>_<pdf-st
 ```json
 {
   "page":                  1,
-  "model":                 "gemini-2.5-flash",
+  "model":                 "claude-sonnet-4-0",
   "dpi":                   150,
+  "skip":                  false,
+  "skip_reason":           null,
   "book_page":             19,
-  "title":                 "Ability Scores",
+  "title":                 "Chapter 4: Experimental Results",
   "text":                  "...",
+  "tables": [
+    {
+      "title":   "Table 3: Annual Rainfall by Region",
+      "caption": "Rainfall measurements in millimetres across six regions over a five-year period.",
+      "content": "| Region | 2019 | ... |"
+    }
+  ],
+  "watermarks":            [],
   "extraction_method":     "full-page",
   "paraphrased":           null,
   "chunk_warnings":        [],
@@ -82,61 +93,82 @@ For each run, four output artefacts are written under `output/<provider>_<pdf-st
 
 - `book_page` — the printed page number from the document (may differ from PDF page index)
 - `title` — prominent display heading if present (chapter title, appendix label, etc.), `null` otherwise; always plain text, no markdown
-- `text` — extracted or paraphrased body text, excluding the page title; empty string for image-only pages
-- `extraction_method` — `"full-page"` or `"quadrant-split"`
-- `paraphrased` — `null` (verbatim), `"partial"` (some quadrants paraphrased), or `"full"` (whole page paraphrased)
+- `text` — verbatim body text, excluding the page title and all table bodies; empty string for skipped or image-only pages
+- `tables` — array of extracted tables, each with `title` (heading label), `caption` (description for search and retrieval), and `content` (full markdown table)
+- `skip` / `skip_reason` — `true` for pages excluded from the output (table of contents, index, blank, illustration-only, title page, part divider)
+- `watermarks` — array of watermark strings detected and excluded from the text
+- `extraction_method` — `"full-page"`, `"quadrant-split"`, or `"ocr+structure"` (Mistral)
+- `paraphrased` — `null` (verbatim), `"partial"` (some quadrants paraphrased), or `"full"` (whole page paraphrased); always `null` for Mistral
 - `error` — exception message if the page failed entirely, `null` otherwise
 
-### Per-page markdown frontmatter
+### Per-page markdown
 
-```yaml
+Each `pages/page_NNN.md` file has YAML frontmatter followed by the page body. Tables are appended after the prose in document order:
+
+```markdown
 ---
 pdf_page: 1
-book_page: 19
-source: Player_s_Handbook_Revised_2e.pdf
-title: Ability Scores
+book_page: 42
+source: my_document.pdf
+title: Chapter 4: Experimental Results
+tables: 1
 ---
-```
 
-### Combined markdown separators
+Body text here...
 
-```
-<!-- ↓ PDF page: 1      book page: 19     extraction: full-page -->
+<!-- table: Table 3: Annual Rainfall by Region -->
 
-# Ability Scores
-
-...body text...
+| Region | 2019 | 2020 | ...
 ```
 
 ---
 
 ## Installation
 
-Requires Python 3.11+ and [Poppler](https://poppler.freedesktop.org/) (for `pdf2image`).
+Requires Python 3.10+ and [Poppler](https://poppler.freedesktop.org/) (used by `pdf2image` to render PDF pages).
+
+**Install Poppler:**
 
 ```bash
-# Install Poppler (macOS)
+# macOS
 brew install poppler
 
-# Install Poppler (Ubuntu/Debian)
-apt-get install poppler-utils
+# Ubuntu / Debian
+sudo apt-get install poppler-utils
 
-# Install the package
+# Windows — download from https://github.com/oschwartz10612/poppler-windows/releases
+# and add the bin/ folder to your PATH
+```
+
+**Install pdfextract:**
+
+```bash
+git clone https://github.com/<you>/pdfextract.git
+cd pdfextract
 pip install -e .
 ```
 
-### Environment variables
+### API keys
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (see `.env.example`):
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=AIza...
+MISTRAL_API_KEY=...
 ```
+
+Only the key for the provider you intend to use is required.
 
 ---
 
 ## Usage
+
+```bash
+pdfextract path/to/file.pdf [OPTIONS]
+```
+
+Or equivalently:
 
 ```bash
 python -m pdfextract path/to/file.pdf [OPTIONS]
@@ -146,28 +178,32 @@ python -m pdfextract path/to/file.pdf [OPTIONS]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--provider` | `anthropic` | LLM provider: `anthropic` or `gemini` |
-| `--model` | provider default | Model ID to use |
+| `--provider` | `anthropic` | LLM provider: `anthropic`, `gemini`, or `mistral` |
+| `--model` | provider default | Model ID to override the provider default |
 | `--dpi` | `150` | PDF render resolution. 150 is sufficient for most pages; use 200–300 for very small or dense text |
 
 ### Provider defaults
 
-| Provider | Default model |
-|---|---|
-| `anthropic` | `claude-sonnet-4-20250514` |
-| `gemini` | `gemini-2.5-flash-lite` |
+| Provider | Default model | Notes |
+|---|---|---|
+| `anthropic` | `claude-sonnet-4-0` | Full fallback chain; best quality |
+| `gemini` | `gemini-2.5-flash-lite` | Full fallback chain; lower cost |
+| `mistral` | `mistral-small-latest` | OCR model is always `mistral-ocr-latest`; no fallback chain |
 
 ### Examples
 
 ```bash
 # Anthropic with default model
-python -m pdfextract book.pdf
+pdfextract book.pdf
 
-# Gemini Flash, higher DPI for dense tables
-python -m pdfextract book.pdf --provider gemini --model gemini-2.5-flash --dpi 200
+# Gemini Flash at higher DPI for dense tables
+pdfextract book.pdf --provider gemini --model gemini-2.5-flash --dpi 200
+
+# Mistral (cheapest option, good for clean scans)
+pdfextract book.pdf --provider mistral
 
 # Anthropic Haiku for lower cost
-python -m pdfextract book.pdf --model claude-haiku-4-5-20251001
+pdfextract book.pdf --model claude-haiku-4-5-20251001
 ```
 
 ---
@@ -175,44 +211,49 @@ python -m pdfextract book.pdf --model claude-haiku-4-5-20251001
 ## Module structure
 
 ```
-pdf_extractor/
-├── __init__.py       Public API: iter_pages, stream_outputs, write_report, build_provider
-├── cli.py            Argument parsing and run orchestration
-├── extraction.py     Fallback chain, JSON response parsing, page iteration
-├── image_utils.py    Quadrant splitting, JPEG encoding, obfuscation
-├── output.py         JSONL, markdown, and report writing
-├── pricing.py        Live cost estimation via litellm pricing index
-├── prompts.py        All LLM prompt strings
-└── providers.py      Anthropic and Gemini provider abstractions with retry logic
+pdfextract/
+├── cli.py                    Argument parsing and run orchestration
+├── extraction.py             Per-page orchestration: VisionExtractor, MistralExtractor, iter_pages
+├── image_utils.py            Quadrant splitting, JPEG encoding, obfuscation
+├── output.py                 JSONL, markdown, and report writing
+├── pricing.py                Live cost estimation via litellm pricing index
+├── prompts.py                All LLM prompt strings
+└── providers/
+    ├── base.py               Usage NamedTuple, PAGE_EXTRACTION_SCHEMA, VisionProvider ABC, retry helper
+    ├── anthropic.py          AnthropicProvider — tool_choice forced structured output
+    ├── gemini.py             GeminiProvider — response_schema structured output
+    ├── mistral.py            MistralProvider — two-step OCR + structuring pipeline
+    └── provider_factory.py   build_provider() factory
 ```
 
 ---
 
-## Public API
+## Programmatic use
 
-The package can also be used programmatically:
+The package can also be used directly in Python:
 
 ```python
-from pdf_extractor import build_provider, iter_pages, stream_outputs, write_report
+from pdfextract.providers.provider_factory import build_provider
+from pdfextract.extraction import iter_pages
+from pdfextract.output import stream_outputs, write_report
 from pathlib import Path
 
 pdf = Path("book.pdf")
-provider = build_provider("gemini", model="gemini-2.5-flash")
+provider = build_provider("anthropic")
 
 pages = iter_pages(pdf, provider, dpi=150)
-saved, results = stream_outputs(pdf, pages, provider_name="gemini")
+saved, results = stream_outputs(pdf, pages, provider_name="anthropic")
 write_report(pdf, results, saved)
 ```
 
 ---
 
-## Tests
+## Development
 
 ```bash
+pip install -e ".[dev]"
 python -m pytest tests/
 ```
-
-The test suite (`tests/test_output_consistency.py`) validates the JSONL-as-source-of-truth invariant: every JSONL record has a corresponding markdown file, the markdown body matches the `text` field exactly, frontmatter fields agree with JSONL metadata, the combined markdown uses the correct separator format, and all required fields are present.
 
 ---
 
@@ -220,6 +261,7 @@ The test suite (`tests/test_output_consistency.py`) validates the JSONL-as-sourc
 
 - **Full-page extraction** costs 1 API call per page
 - **Quadrant-split** costs 5 calls per page (4 quadrants + 1 stitch) — typically triggered by content filters on pages with artwork
+- **Mistral** charges per OCR page plus chat tokens for the structuring step
 - Pages are sent as JPEG at quality 85, which is 5–10× smaller than PNG for scanned content, directly reducing input token counts
 - Cost estimates are fetched live from [litellm's pricing index](https://github.com/BerriAI/litellm) with hardcoded fallbacks for models not yet indexed
 - The `report.md` in each run folder contains a full per-page cost and token breakdown
