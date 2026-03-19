@@ -51,9 +51,9 @@ def _build_rate_limit_message(exc: Exception, step: str = "") -> str:
         return int(v) if v is not None else None
 
     monthly_remaining = _int("x-ratelimit-remaining-tokens-month")
-    monthly_limit     = _int("x-ratelimit-limit-tokens-month")
-    minute_remaining  = _int("x-ratelimit-remaining-tokens-minute")
-    minute_limit      = _int("x-ratelimit-limit-tokens-minute")
+    monthly_limit = _int("x-ratelimit-limit-tokens-month")
+    minute_remaining = _int("x-ratelimit-remaining-tokens-minute")
+    minute_limit = _int("x-ratelimit-limit-tokens-minute")
 
     if monthly_remaining is not None and monthly_remaining == 0:
         used = f"{monthly_limit:,}" if monthly_limit is not None else "unknown"
@@ -90,7 +90,12 @@ def _with_retry(is_filter_error, fn, step: str = ""):
     last_exc = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            return fn()
+            result = fn()
+            if attempt > 0:
+                step_label = f" [{step}]" if step else ""
+                print(f"        ✓ Retry succeeded{step_label} (attempt {attempt + 1})")
+            return result
+
         except Exception as exc:
             if is_filter_error(exc):
                 raise
