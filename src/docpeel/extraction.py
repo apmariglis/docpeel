@@ -417,6 +417,7 @@ def iter_pages(
     pdf_path: Path,
     provider: VisionProvider | MistralProvider,
     dpi: int = 150,
+    pages: set[int] | None = None,
 ) -> Iterator[dict]:
     """
     Yield one result dict per page, converting and releasing each page image
@@ -425,6 +426,10 @@ def iter_pages(
     dpi controls the render resolution. 150 DPI is sufficient for OCR and
     keeps image sizes small. Use higher values (200-300) for pages with very
     small or dense text. Default: 150.
+
+    pages: optional set of 1-based page numbers to process. Pages not in the
+    set are skipped entirely — no image is rendered for them. When None (the
+    default), all pages are processed.
 
     Dispatches to VisionExtractor for AnthropicProvider/GeminiProvider, or
     MistralExtractor for MistralProvider. Both yield identical result dicts.
@@ -435,9 +440,11 @@ def iter_pages(
         extractor = VisionExtractor(provider)
 
     n_pages = page_count(pdf_path)
+    pages_to_process = sorted(pages) if pages is not None else range(1, n_pages + 1)
+    total_selected = len(pages_to_process) if pages is not None else n_pages
 
-    for page_num in range(1, n_pages + 1):
-        print(f"  Processing page {page_num}/{n_pages} …")
+    for idx, page_num in enumerate(pages_to_process, start=1):
+        print(f"  Processing page {page_num} ({idx}/{total_selected}) …")
         t0 = time.perf_counter()
 
         # Load exactly one page — released at end of loop body

@@ -30,6 +30,47 @@ from docpeel.providers.provider_factory import build_provider
 load_dotenv()
 
 
+def _parse_pages(spec: str) -> set[int]:
+    """
+    Parse a page specification string into a set of 1-based page numbers.
+
+    Accepts comma-separated pages and/or inclusive ranges:
+        "5"        → {5}
+        "1,3,5"    → {1, 3, 5}
+        "2-5"      → {2, 3, 4, 5}
+        "1,3,7-10" → {1, 3, 7, 8, 9, 10}
+
+    Raises ValueError with a descriptive message on invalid input.
+    """
+    pages: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            halves = part.split("-", 1)
+            if len(halves) != 2 or not halves[0].strip() or not halves[1].strip():
+                raise ValueError(f"invalid page range: {part!r}")
+            try:
+                start, end = int(halves[0].strip()), int(halves[1].strip())
+            except ValueError:
+                raise ValueError(f"invalid page range: {part!r}")
+            if start < 1 or end < 1:
+                raise ValueError(f"page numbers must be ≥ 1, got: {part!r}")
+            if start > end:
+                raise ValueError(f"range start must be ≤ end, got: {part!r}")
+            pages.update(range(start, end + 1))
+        else:
+            try:
+                n = int(part)
+            except ValueError:
+                raise ValueError(f"invalid page number: {part!r}")
+            if n < 1:
+                raise ValueError(f"page numbers must be ≥ 1, got: {part!r}")
+            pages.add(n)
+    return pages
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -83,6 +124,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--pages",
+        default=None,
+        metavar="PAGES",
+        help=(
+            "Pages to extract. Accepts comma-separated page numbers and/or inclusive ranges. "
+            "Examples: --pages 3  |  --pages 1,3,5  |  --pages 2-5  |  --pages 1,3,7-10. "
+            "Omit to process the entire PDF."
+        ),
+    )
+    parser.add_argument(
         "--dpi",
         type=int,
         default=150,
@@ -114,6 +165,16 @@ def main() -> None:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
+    # Parse --pages before building the provider so we fail fast on bad input
+    pages_filter: set[int] | None = None
+    if args.pages is not None:
+        try:
+            pages_filter = _parse_pages(args.pages)
+        except ValueError as exc:
+            parser.print_help()
+            print(f"\nerror: --pages: {exc}", file=__import__("sys").stderr)
+            raise SystemExit(2)
+
     provider = build_provider(
         vision_model=args.vision_model,
         ocr=args.ocr,
@@ -129,9 +190,24 @@ def main() -> None:
     print(f"Output   : {run_folder}")
 
     n_pages = page_count(pdf_path)
-    print(f"Pages    : {n_pages}")
+
+    if pages_filter is not None:
+        out_of_range = sorted(p for p in pages_filter if p > n_pages)
+        if out_of_range:
+            print(
+                f"\nerror: --pages: page(s) {out_of_range} exceed the PDF length ({n_pages} pages).",
+                file=__import__("sys").stderr,
+            )
+            raise SystemExit(2)
+
+    pages_label = (
+        f"{len(pages_filter)} selected / {n_pages} total"
+        if pages_filter is not None
+        else str(n_pages)
+    )
+    print(f"Pages    : {pages_label}")
     t0 = time.perf_counter()
-    pages = iter_pages(pdf_path, provider, dpi=args.dpi)
+    pages = iter_pages(pdf_path, provider, dpi=args.dpi, pages=pages_filter)
     saved, results = stream_outputs(pdf_path, pages, provider_name=provider_name)
     report_path = write_report(pdf_path, results, saved)
 
@@ -156,7 +232,7 @@ def main() -> None:
     ]
     all_incomplete = failed_pages + chunk_missing_pages
 
-    print(f"\nDone. {len(results)}/{n_pages} page(s) processed.")
+    print(f"\nDone. {len(results)}/{pages_label} page(s) processed.")
     if skipped_pages:
         by_reason: dict[str, list[int]] = {}
         for r in skipped_pages:
@@ -193,7 +269,6 @@ def main() -> None:
     print(f"  Total cost        : ${total_cost:.6f}")
     elapsed = time.perf_counter() - t0
     print(f"  Total time        : {elapsed:.1f}s ({elapsed / 60:.1f} min)")
-
 
 
 if __name__ == "__main__":
