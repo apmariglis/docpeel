@@ -32,6 +32,7 @@ def _make_page(
     book_page: int | None = None,
     method: str = "full-page",
     error: str | None = None,
+    tables: list[dict] | None = None,
 ) -> dict:
     """Build a minimal result dict matching what iter_pages yields."""
     return {
@@ -49,6 +50,7 @@ def _make_page(
         "chunk_warnings": [],
         "paraphrased": None,
         "error": error,
+        "tables": tables or [],
     }
 
 
@@ -348,3 +350,36 @@ def test_combined_md_uses_comment_separators_not_headers(run_output):
         assert re.search(
             pattern, combined
         ), f"No ↓ comment separator found for PDF page {r['page']} in combined markdown"
+
+
+# ---------------------------------------------------------------------------
+# 11. Continued-table merge is applied before writing to JSONL
+# ---------------------------------------------------------------------------
+
+
+def test_continued_table_merged_in_jsonl(tmp_path):
+    """
+    A table on page 2 with no title and the same column count as page 1's last
+    table should be merged into page 1's table in the written JSONL.
+    """
+    pages = [
+        _make_page(1, "page one", tables=[{
+            "title": "Table 1", "caption": "cap",
+            "content": "| H |\n| --- |\n| r1 |",
+        }]),
+        _make_page(2, "page two", tables=[{
+            "title": None, "caption": "cap",
+            "content": "| r2 |\n| --- |\n| r3 |",
+        }]),
+    ]
+    saved, _ = _run_stream(pages, tmp_path)
+    records = _read_jsonl(saved["json"])
+
+    # Page 1 table should contain rows from both pages
+    p1_tables = records[0]["tables"]
+    assert len(p1_tables) == 1
+    assert "| r1 |" in p1_tables[0]["content"]
+    assert "| r2 |" in p1_tables[0]["content"]
+
+    # Page 2 should have no tables
+    assert records[1]["tables"] == []

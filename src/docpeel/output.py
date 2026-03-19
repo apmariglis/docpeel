@@ -96,6 +96,99 @@ def _outcome_col(r: dict) -> str:
     return "✅ ok"
 
 
+def _col_count(content: str) -> int:
+    """Count columns from the first | --- | separator row in a markdown table."""
+    for line in content.splitlines():
+        cells = [c.strip() for c in line.split("|") if c.strip()]
+        if cells and all(re.match(r"^-+$", c) for c in cells):
+            return len(cells)
+    return 0
+
+
+def _is_separator_row(line: str) -> bool:
+    """Return True if the line is a markdown separator row (| --- | --- |)."""
+    cells = [c.strip() for c in line.split("|") if c.strip()]
+    return bool(cells) and all(re.match(r"^-+$", c) for c in cells)
+
+
+def _strip_trailing_separators(content: str) -> str:
+    """
+    Remove any trailing | --- | rows from a table's content.
+
+    Mistral OCR appends a | --- | separator row after every data row, including
+    the very last one. When two page fragments are joined, this trailing separator
+    would appear immediately before the first row of the next fragment, creating
+    a spurious separator in the middle of the merged table. Stripping it first
+    keeps the merged content clean.
+    """
+    lines = content.rstrip().splitlines()
+    while lines and _is_separator_row(lines[-1]):
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _strip_leading_false_header_separator(content: str) -> str:
+    """
+    Remove the | --- | row that immediately follows the first row of a
+    continuation fragment.
+
+    When the OCR model processes a page that starts mid-table, it sees the
+    first data row in isolation and treats it as a column header, inserting a
+    | --- | separator after it (standard markdown table format). In the merged
+    table this separator is spurious — the first row is just another data row,
+    not a header.
+    """
+    lines = content.splitlines()
+    # Line 0 is the first data row; line 1 is the false header separator.
+    if len(lines) >= 2 and _is_separator_row(lines[1]):
+        lines.pop(1)
+    return "\n".join(lines)
+
+
+def _merge_continued_tables(results: list[dict]) -> list[dict]:
+    """
+    Merge tables that span page boundaries.
+
+    A table is treated as a continuation of the previous page's last table when:
+      - It is the first table on the page
+      - It has no title
+      - It has the same column count as the previous page's last table
+        (determined from the | --- | separator row)
+
+    Only the first table on a page is a candidate. Mid-page tables, tables with
+    titles, tables whose column count does not match, tables on the first page,
+    and tables where no suitable previous table exists are all left untouched.
+    """
+    for i, page in enumerate(results):
+        tables = page.get("tables") or []
+        if not tables or i == 0:
+            continue
+        first = tables[0]
+        if first.get("title") is not None:
+            continue
+        curr_cols = _col_count(first.get("content", ""))
+        if curr_cols == 0:
+            continue
+        # Look back to the nearest previous page that still has tables
+        for j in range(i - 1, -1, -1):
+            prev_tables = results[j].get("tables") or []
+            if prev_tables:
+                prev_last = prev_tables[-1]
+                if _col_count(prev_last.get("content", "")) == curr_cols:
+                    prev_last["content"] = (
+                        _strip_trailing_separators(prev_last["content"])
+                        + "\n"
+                        + _strip_leading_false_header_separator(first["content"])
+                    )
+                    prev_last["caption"] = (
+                        prev_last.get("caption", "") + " " + first.get("caption", "")
+                    ).strip()
+                    page["tables"] = tables[1:]
+                break
+
+    return results
+
+
 def resolve_run_folder(pdf_path: Path, provider_name: str) -> Path:
     """
     Return the output folder path that will be used for a given pdf + provider
@@ -138,13 +231,17 @@ def stream_outputs(
     # Write combined markdown header
     combined_md.write_text(f"# Extracted text — {pdf_path.name}\n", encoding="utf-8")
 
+    # Collect all pages so we can merge cross-page table continuations before writing
+    all_pages = list(pages)
+    _merge_continued_tables(all_pages)
+
     results = []  # metadata only — no text field kept in RAM
 
     with (
         combined_md.open("a", encoding="utf-8") as md_f,
         json_file.open("w", encoding="utf-8") as json_f,
     ):
-        for r in pages:
+        for r in all_pages:
             tables: list[dict] = r.get("tables") or []
             is_skip = r.get("skip", False)
 
