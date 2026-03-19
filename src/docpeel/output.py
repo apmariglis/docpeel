@@ -127,6 +127,33 @@ def _strip_trailing_separators(content: str) -> str:
     return "\n".join(lines)
 
 
+def _header_row(content: str) -> str | None:
+    """
+    Return the column header row (the row immediately before the first | --- |
+    separator). Returns None if no separator is found or the separator is the
+    very first line.
+    """
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
+        if i > 0 and _is_separator_row(line):
+            return lines[i - 1].strip()
+    return None
+
+
+def _strip_header_and_separator(content: str) -> str:
+    """
+    Remove the column header row and its separator from the start of a
+    continuation fragment. Used to eliminate repeated column headers when
+    merging a page whose table repeats the previous page's header.
+    """
+    lines = content.splitlines()
+    for i, line in enumerate(lines):
+        if i > 0 and _is_separator_row(line):
+            # Remove header row (i-1) and separator (i); keep everything else
+            return "\n".join(lines[: i - 1] + lines[i + 1 :])
+    return content
+
+
 def _strip_leading_false_header_separator(content: str) -> str:
     """
     Remove the | --- | row that immediately follows the first row of a
@@ -147,44 +174,73 @@ def _strip_leading_false_header_separator(content: str) -> str:
 
 def _merge_continued_tables(results: list[dict]) -> list[dict]:
     """
-    Merge tables that span page boundaries.
+    Merge tables that span page boundaries into the first page's table.
 
-    A table is treated as a continuation of the previous page's last table when:
-      - It is the first table on the page
-      - It has no title
-      - It has the same column count as the previous page's last table
-        (determined from the | --- | separator row)
+    Two continuation signals are recognised, checked in order:
 
-    Only the first table on a page is a candidate. Mid-page tables, tables with
-    titles, tables whose column count does not match, tables on the first page,
-    and tables where no suitable previous table exists are all left untouched.
+    1. No-title continuation — the first table on the page has no title and
+       the same column count as the nearest previous page's last table
+       (column count comes from the | --- | separator row).
+
+    2. Repeated-header continuation — the first table's column header row
+       (the row immediately before the | --- | separator) is identical to
+       the nearest previous page's last table's header row. This handles
+       the publishing convention where each continuation page re-prints the
+       column headers. The duplicate header + separator are stripped before
+       appending.
+
+    Only the first table on a page is ever a candidate. Tables that appear
+    mid-page, tables on the first page, and tables with no suitable match on
+    the previous page are all left untouched.
     """
     for i, page in enumerate(results):
         tables = page.get("tables") or []
         if not tables or i == 0:
             continue
         first = tables[0]
-        if first.get("title") is not None:
-            continue
-        curr_cols = _col_count(first.get("content", ""))
-        if curr_cols == 0:
-            continue
-        # Look back to the nearest previous page that still has tables
+
+        # Find the nearest previous page that has at least one table
+        prev_tables = None
         for j in range(i - 1, -1, -1):
-            prev_tables = results[j].get("tables") or []
-            if prev_tables:
-                prev_last = prev_tables[-1]
-                if _col_count(prev_last.get("content", "")) == curr_cols:
-                    prev_last["content"] = (
-                        _strip_trailing_separators(prev_last["content"])
-                        + "\n"
-                        + _strip_leading_false_header_separator(first["content"])
-                    )
-                    prev_last["caption"] = (
-                        prev_last.get("caption", "") + " " + first.get("caption", "")
-                    ).strip()
-                    page["tables"] = tables[1:]
+            candidate = results[j].get("tables") or []
+            if candidate:
+                prev_tables = candidate
                 break
+        if not prev_tables:
+            continue
+        prev_last = prev_tables[-1]
+
+        # Signal 1: no title + matching column count
+        if first.get("title") is None:
+            curr_cols = _col_count(first.get("content", ""))
+            if curr_cols > 0 and _col_count(prev_last.get("content", "")) == curr_cols:
+                prev_last["content"] = (
+                    _strip_trailing_separators(prev_last["content"])
+                    + "\n"
+                    + _strip_leading_false_header_separator(first["content"])
+                )
+                prev_last["caption"] = (
+                    prev_last.get("caption", "") + " " + first.get("caption", "")
+                ).strip()
+                page["tables"] = tables[1:]
+                continue
+
+        # Signal 2: identical column header row (repeated-header continuation).
+        # When a multi-page table repeats its column headers at the top of each
+        # continuation page, the header row on the new page is identical to the
+        # one on the previous page. Strip the repeated header before appending.
+        curr_hdr = _header_row(first.get("content", ""))
+        prev_hdr = _header_row(prev_last.get("content", ""))
+        if curr_hdr and prev_hdr and curr_hdr == prev_hdr:
+            prev_last["content"] = (
+                _strip_trailing_separators(prev_last["content"])
+                + "\n"
+                + _strip_header_and_separator(first["content"])
+            )
+            prev_last["caption"] = (
+                prev_last.get("caption", "") + " " + first.get("caption", "")
+            ).strip()
+            page["tables"] = tables[1:]
 
     return results
 

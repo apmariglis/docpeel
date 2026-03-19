@@ -43,18 +43,18 @@ _3COL = "| H1 | H2 | H3 |\n| --- | --- | --- |\n| 1 | 2 | 3 |"
 
 
 def test_no_continuations_unchanged():
-    """Tables with titles are never merged."""
+    """Independent tables with different column headers are not merged."""
     results = [
         _page(1, [_table(_1COL, title="T1")]),
-        _page(2, [_table(_1COL, title="T2")]),
+        _page(2, [_table(_2COL, title="T2")]),
     ]
     merged = _merge_continued_tables(results)
     assert merged[0]["tables"][0]["content"] == _1COL
-    assert merged[1]["tables"][0]["content"] == _1COL
+    assert merged[1]["tables"][0]["content"] == _2COL
 
 
 def test_no_continuations_page_count_unchanged():
-    results = [_page(1, [_table(_1COL, title="T1")]), _page(2, [_table(_1COL, title="T2")])]
+    results = [_page(1, [_table(_1COL, title="T1")]), _page(2, [_table(_2COL, title="T2")])]
     merged = _merge_continued_tables(results)
     assert len(merged) == 2
     assert len(merged[0]["tables"]) == 1
@@ -205,10 +205,11 @@ def test_only_first_table_merged_second_stays():
 
 
 def test_non_first_table_not_checked():
+    """Only the first table on a page is a continuation candidate."""
     results = [
         _page(3, [_table(_1COL, title="T1")]),
         _page(4, [
-            _table(_1COL, title="T2"),          # titled first table — no merge
+            _table(_2COL, title="T2"),          # different headers — no merge
             _table("| x |\n| --- |"),           # no title, 1 col — but not first
         ]),
     ]
@@ -306,3 +307,109 @@ def test_no_separator_row_not_merged():
     merged = _merge_continued_tables(results)
     assert len(merged[0]["tables"]) == 1
     assert len(merged[1]["tables"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# 10. Repeated-header continuation (identical header row on consecutive pages)
+# ---------------------------------------------------------------------------
+
+_3COL_HDR = "| A | B | C |"
+_3COL_SEP = "| --- | --- | --- |"
+
+
+def _rh_table(rows: str, title: str | None = None) -> dict:
+    """Table with a repeated header format: header + sep + data rows."""
+    content = f"{_3COL_HDR}\n{_3COL_SEP}\n{rows}"
+    return {"title": title, "caption": "cap", "content": content}
+
+
+def test_repeated_header_tables_merged():
+    """Tables with identical header rows on consecutive pages are merged."""
+    results = [
+        _page(1, [_rh_table("| 1 | 2 | 3 |", title="T")]),
+        _page(2, [_rh_table("| 4 | 5 | 6 |", title="T CONTINUED")]),
+    ]
+    merged = _merge_continued_tables(results)
+    content = merged[0]["tables"][0]["content"]
+    assert "| 1 | 2 | 3 |" in content
+    assert "| 4 | 5 | 6 |" in content
+
+
+def test_repeated_header_continuation_removed_from_page():
+    results = [
+        _page(1, [_rh_table("| r1 |", title="T")]),
+        _page(2, [_rh_table("| r2 |", title="T CONTINUED")]),
+    ]
+    merged = _merge_continued_tables(results)
+    assert merged[1]["tables"] == []
+
+
+def test_repeated_header_strips_duplicate_header_from_continuation():
+    """The repeated header row and separator must not appear twice in the merged content."""
+    results = [
+        _page(1, [_rh_table("| r1 |", title="T")]),
+        _page(2, [_rh_table("| r2 |", title="T CONTINUED")]),
+    ]
+    merged = _merge_continued_tables(results)
+    content = merged[0]["tables"][0]["content"]
+    # Header row should appear exactly once
+    assert content.count(_3COL_HDR) == 1
+    # Separator row should appear exactly once
+    assert content.count(_3COL_SEP) == 1
+
+
+def test_repeated_header_data_order_preserved():
+    results = [
+        _page(1, [_rh_table("| r1 |\n| r2 |", title="T")]),
+        _page(2, [_rh_table("| r3 |\n| r4 |", title="T CONTINUED")]),
+    ]
+    merged = _merge_continued_tables(results)
+    content = merged[0]["tables"][0]["content"]
+    assert content.index("r1") < content.index("r2") < content.index("r3") < content.index("r4")
+
+
+def test_repeated_header_different_headers_not_merged():
+    """Tables with different header rows are NOT merged even if both have titles."""
+    results = [
+        _page(1, [_table("| X | Y |\n| --- | --- |\n| 1 | 2 |", title="T1")]),
+        _page(2, [_table("| A | B |\n| --- | --- |\n| 3 | 4 |", title="T2 CONTINUED")]),
+    ]
+    merged = _merge_continued_tables(results)
+    assert len(merged[0]["tables"]) == 1
+    assert len(merged[1]["tables"]) == 1
+
+
+def test_repeated_header_captions_concatenated():
+    results = [
+        _page(1, [{"title": "T", "caption": "First part.", "content": f"{_3COL_HDR}\n{_3COL_SEP}\n| r1 |"}]),
+        _page(2, [{"title": "T CONTINUED", "caption": "Second part.", "content": f"{_3COL_HDR}\n{_3COL_SEP}\n| r2 |"}]),
+    ]
+    merged = _merge_continued_tables(results)
+    assert merged[0]["tables"][0]["caption"] == "First part. Second part."
+
+
+def test_repeated_header_three_page_chain():
+    """Three-page chain with repeated headers all merges into the first page."""
+    results = [
+        _page(1, [_rh_table("| r1 |", title="T")]),
+        _page(2, [_rh_table("| r2 |", title="T CONTINUED")]),
+        _page(3, [_rh_table("| r3 |", title="T CONTINUED")]),
+    ]
+    merged = _merge_continued_tables(results)
+    content = merged[0]["tables"][0]["content"]
+    assert "| r1 |" in content
+    assert "| r2 |" in content
+    assert "| r3 |" in content
+    assert merged[1]["tables"] == []
+    assert merged[2]["tables"] == []
+
+
+def test_repeated_header_no_title_still_merges_by_column_count():
+    """No-title detection still works even when header rows happen to match."""
+    results = [
+        _page(1, [_rh_table("| r1 |", title="T")]),
+        _page(2, [_rh_table("| r2 |")]),  # no title → no-title path
+    ]
+    merged = _merge_continued_tables(results)
+    assert merged[1]["tables"] == []
+    assert "| r2 |" in merged[0]["tables"][0]["content"]
