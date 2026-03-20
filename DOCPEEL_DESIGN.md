@@ -30,7 +30,7 @@ A CLI tool that converts PDF files to structured markdown + JSON using vision LL
 | `providers/anthropic.py` | `AnthropicProvider` — single vision call, forced `tool_choice` for structured output. |
 | `providers/gemini.py` | `GeminiProvider` — single vision call, `response_schema` for structured output. |
 | `providers/mistral.py` | `MistralProvider` — standalone class (not a `VisionProvider`), two-step OCR + structuring pipeline. |
-| `providers/provider_factory.py` | `build_provider()` factory function. Accepts `vision_model`, `ocr`, and `structure_model` keyword args matching the CLI flags. Infers provider from model name prefix via `_infer_vision_provider()`. Builds optional vision-model structure callable via `_build_structure_fn()` for OCR+vision runs; supports both Anthropic and Gemini as the structure provider. |
+| `providers/provider_factory.py` | `build_provider()` factory function. Accepts `vision_model`, `ocr`, and `structure_model` keyword args matching the CLI flags. Infers provider from model name prefix via `_infer_vision_provider()`. Mistral-native structure models (`mistral-*`, `devstral-*`, `codestral-*`, `open-*`) are routed directly to `MistralProvider`; non-Mistral models (`gemini-*`, `claude-*`) are wrapped via `_build_structure_fn()`. |
 | `providers/__init__.py` | Empty. Import directly from submodules. |
 
 ---

@@ -322,8 +322,18 @@ class MistralProvider:
 
     def resolve_model_id(self) -> None:
         if self._chat_model is not None:
-            result = self._client.models.retrieve(model_id=self._chat_model)
-            self._chat_model = result.id
+            from mistralai import models as _mistral_models
+            try:
+                result = self._client.models.retrieve(model_id=self._chat_model)
+                self._chat_model = result.id
+            except _mistral_models.SDKError as exc:
+                if "404" in str(exc) or "was not found" in str(exc):
+                    raise ValueError(
+                        f"Unknown structure model '{self._chat_model}'. "
+                        "Check https://docs.mistral.ai/getting-started/models/models_overview/ "
+                        "for valid Mistral model names."
+                    ) from None
+                raise
         elif self._structure_fn is not None:
             # Delegate to the embedded provider (e.g. GeminiProvider)
             embedded = getattr(self._structure_fn, "_provider", None)

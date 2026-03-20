@@ -23,6 +23,9 @@ _VISION_PREFIXES: dict[str, str] = {
     "gemini": "gemini",
 }
 
+# Prefixes for models served by the Mistral API (used as --structure-model)
+_MISTRAL_NATIVE_PREFIXES = ("mistral", "devstral", "codestral", "open-")
+
 
 def build_provider(
     vision_model: str | None = None,
@@ -40,7 +43,7 @@ def build_provider(
         if ocr.lower() != "mistral":
             raise ValueError(f"Unknown OCR engine '{ocr}'. Supported: mistral")
         structure_fn = None
-        if structure_model and not structure_model.startswith("mistral"):
+        if structure_model and not structure_model.startswith(_MISTRAL_NATIVE_PREFIXES):
             structure_fn = _build_structure_fn(structure_model)
             return MistralProvider(model=None, structure_fn=structure_fn)
         return MistralProvider(model=structure_model)

@@ -193,7 +193,7 @@ python -m docpeel path/to/file.pdf [OPTIONS]
 |---|---|---|
 | `--vision-model MODEL` | — | Vision model for direct image-to-text extraction. Provider inferred from name prefix (`claude-*` → Anthropic, `gemini-*` → Gemini). |
 | `--ocr ENGINE` | — | OCR engine for a two-step pipeline (currently: `mistral`). Must be paired with `--structure-model`. Mutually exclusive with `--vision-model`. |
-| `--structure-model MODEL` | — | LLM for the structuring step (requires `--ocr`). Supports `mistral-*`, `gemini-*`, and `claude-*` models. |
+| `--structure-model MODEL` | — | LLM for the structuring step (requires `--ocr`). Supports `mistral-*`, `devstral-*`, `codestral-*`, `gemini-*`, and `claude-*` models. |
 | `--pages PAGES` | all | Pages to extract. Accepts comma-separated numbers and/or ranges, e.g. `3`, `1,3,5`, `2-5`, `1,3,7-10`. |
 | `--dpi N` | `150` | PDF render resolution. 150 is sufficient for most pages; use 200–300 for very small or dense text. |
 | `--verbose` / `-v` | — | Enable debug logging (per-chunk detail, stitch steps). |
