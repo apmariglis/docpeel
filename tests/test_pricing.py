@@ -1,9 +1,9 @@
 """
 Tests for pricing.py — cost calculation for Anthropic, Gemini, and Mistral.
-The litellm network fetch is mocked throughout.
+The litellm network fetch and filesystem cache are mocked throughout.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -35,15 +35,39 @@ _FAKE_PRICING = {
         "input_cost_per_token": 0.0000001,
         "output_cost_per_token": 0.0000004,
     },
+    "mistral/mistral-small-latest": {
+        "litellm_provider": "mistral",
+        "input_cost_per_token": 0.0000001,
+        "output_cost_per_token": 0.0000003,
+    },
+    "mistral/mistral-large-latest": {
+        "litellm_provider": "mistral",
+        "input_cost_per_token": 0.000002,
+        "output_cost_per_token": 0.000006,
+    },
 }
 
 
 def _patch_pricing(data=None):
-    """Context manager that patches _fetch_litellm_pricing to return data."""
+    """Patch litellm fetch and disable cache writes."""
     target = data if data is not None else _FAKE_PRICING
-    # Clear lru_cache first so the mock is actually used
     pricing_mod._fetch_litellm_pricing.cache_clear()
-    return patch.object(pricing_mod, "_fetch_litellm_pricing", return_value=target)
+    return (
+        patch.object(pricing_mod, "_fetch_litellm_pricing", return_value=target),
+        patch.object(pricing_mod, "_save_cache"),
+        patch.object(pricing_mod, "_load_cache", return_value=None),
+    )
+
+
+# Helper to use all three patches together
+from contextlib import ExitStack
+
+
+def with_pricing(data=None):
+    stack = ExitStack()
+    for ctx in _patch_pricing(data):
+        stack.enter_context(ctx)
+    return stack
 
 
 # ---------------------------------------------------------------------------
@@ -52,27 +76,27 @@ def _patch_pricing(data=None):
 
 
 def test_anthropic_cost_zero_tokens():
-    with _patch_pricing():
+    with with_pricing():
         cost = anthropic_cost("claude-3-haiku-20240307", 0, 0)
     assert cost == 0.0
 
 
 def test_anthropic_cost_input_only():
-    with _patch_pricing():
+    with with_pricing():
         cost = anthropic_cost("claude-3-haiku-20240307", 1_000_000, 0)
     # 1M * 0.00000025 * 1e6 = 0.25
     assert abs(cost - 0.25) < 1e-9
 
 
 def test_anthropic_cost_output_only():
-    with _patch_pricing():
+    with with_pricing():
         cost = anthropic_cost("claude-3-haiku-20240307", 0, 1_000_000)
     # 1M * 0.00000125 * 1e6 = 1.25
     assert abs(cost - 1.25) < 1e-9
 
 
 def test_anthropic_cost_with_cache():
-    with _patch_pricing():
+    with with_pricing():
         cost = anthropic_cost(
             "claude-3-haiku-20240307",
             input_tokens=0,
@@ -84,14 +108,14 @@ def test_anthropic_cost_with_cache():
     assert abs(cost - 0.33) < 1e-9
 
 
-def test_anthropic_cost_unknown_model():
-    with _patch_pricing():
-        with pytest.raises(ValueError, match="No Anthropic pricing"):
-            anthropic_cost("claude-nonexistent-model", 100, 100)
+def test_anthropic_cost_unknown_model_returns_none():
+    with with_pricing():
+        cost = anthropic_cost("claude-nonexistent-model", 100, 100)
+    assert cost is None
 
 
 def test_anthropic_cost_result_non_negative():
-    with _patch_pricing():
+    with with_pricing():
         cost = anthropic_cost("claude-3-5-sonnet-20241022", 500, 500)
     assert cost >= 0
 
@@ -102,72 +126,71 @@ def test_anthropic_cost_result_non_negative():
 
 
 def test_gemini_cost_zero_tokens():
-    with _patch_pricing():
+    with with_pricing():
         cost = gemini_cost("gemini-2.0-flash", 0, 0)
     assert cost == 0.0
 
 
 def test_gemini_cost_from_litellm():
-    with _patch_pricing():
+    with with_pricing():
         cost = gemini_cost("gemini-2.0-flash", 1_000_000, 1_000_000)
     # 0.0000001 * 1e6 + 0.0000004 * 1e6 = 0.1 + 0.4 = 0.5
     assert abs(cost - 0.5) < 1e-9
 
 
-def test_gemini_cost_fallback_model():
-    """Models not in litellm index should fall back to hardcoded rates."""
-    with _patch_pricing({}):  # empty pricing — forces fallback
-        cost = gemini_cost("gemini-2.5-flash-lite", 1_000_000, 1_000_000)
-    # fallback rates: (0.10, 0.40) → 0.10 + 0.40 = 0.50
-    assert abs(cost - 0.50) < 1e-9
-
-
-def test_gemini_cost_unknown_model():
-    with _patch_pricing({}):
-        with pytest.raises(ValueError, match="No Gemini pricing"):
-            gemini_cost("gemini-nonexistent-99", 100, 100)
+def test_gemini_cost_unknown_model_returns_none():
+    with with_pricing({}):
+        cost = gemini_cost("gemini-nonexistent-99", 100, 100)
+    assert cost is None
 
 
 def test_gemini_cost_result_non_negative():
-    with _patch_pricing():
+    with with_pricing():
         cost = gemini_cost("gemini-2.0-flash", 200, 300)
     assert cost >= 0
 
 
 # ---------------------------------------------------------------------------
-# mistral_cost — hardcoded rates, no network call
+# mistral_cost
 # ---------------------------------------------------------------------------
 
 
 def test_mistral_cost_ocr_only():
-    cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 5, 0, 0)
+    # No chat tokens — OCR rate is always known, no litellm call needed
+    with with_pricing():
+        cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 5, 0, 0)
     # 5 pages × $0.001 = $0.005
     assert abs(cost - 0.005) < 1e-9
 
 
 def test_mistral_cost_chat_only():
-    cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 0, 1_000_000, 1_000_000)
-    # 0.10 + 0.30 = 0.40
+    with with_pricing():
+        cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 0, 1_000_000, 1_000_000)
+    # 0.0000001 * 1e6 + 0.0000003 * 1e6 = 0.10 + 0.30 = 0.40
     assert abs(cost - 0.40) < 1e-9
 
 
 def test_mistral_cost_combined():
-    cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 10, 500_000, 200_000)
+    with with_pricing():
+        cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 10, 500_000, 200_000)
     ocr = 10 * 0.001
     chat = (500_000 / 1e6) * 0.10 + (200_000 / 1e6) * 0.30
     assert abs(cost - (ocr + chat)) < 1e-9
 
 
 def test_mistral_cost_large_model():
-    cost = mistral_cost("mistral-ocr-latest", "mistral-large-latest", 0, 1_000_000, 1_000_000)
-    # rates: (2.00, 6.00)
+    with with_pricing():
+        cost = mistral_cost("mistral-ocr-latest", "mistral-large-latest", 0, 1_000_000, 1_000_000)
+    # rates: 0.000002 * 1e6 = 2.00, 0.000006 * 1e6 = 6.00
     assert abs(cost - 8.0) < 1e-9
 
 
 def test_mistral_cost_zero():
-    assert mistral_cost("mistral-ocr-latest", "mistral-small-latest", 0, 0, 0) == 0.0
+    with with_pricing():
+        assert mistral_cost("mistral-ocr-latest", "mistral-small-latest", 0, 0, 0) == 0.0
 
 
 def test_mistral_cost_non_negative():
-    cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 3, 100, 200)
+    with with_pricing():
+        cost = mistral_cost("mistral-ocr-latest", "mistral-small-latest", 3, 100, 200)
     assert cost >= 0

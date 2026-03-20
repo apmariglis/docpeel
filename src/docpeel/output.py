@@ -439,19 +439,22 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
     total_cw = sum(r["cache_creation_tokens"] for r in results)
     total_cr = sum(r["cache_read_tokens"] for r in results)
     total_tokens = total_input + total_output
-    total_cost = sum(r["cost_usd"] for r in results)
+    _costs = [r["cost_usd"] for r in results if r["cost_usd"] is not None]
+    total_cost = sum(_costs) if _costs else None
     total_time = sum(r["elapsed_seconds"] for r in results)
     model = results[0]["model"] if results else "n/a"
     dpi = results[0]["dpi"] if results else "n/a"
 
     # Mistral-specific cost split (only present when ocr_cost_usd field exists)
     mistral_pages = [r for r in results if "ocr_cost_usd" in r]
-    total_ocr_cost = sum(r["ocr_cost_usd"] for r in mistral_pages)
-    total_structure_cost = sum(r["structure_cost_usd"] for r in mistral_pages)
+    _ocr_costs = [r["ocr_cost_usd"] for r in mistral_pages if r["ocr_cost_usd"] is not None]
+    _str_costs = [r["structure_cost_usd"] for r in mistral_pages if r["structure_cost_usd"] is not None]
+    total_ocr_cost = sum(_ocr_costs) if _ocr_costs else None
+    total_structure_cost = sum(_str_costs) if _str_costs else None
 
     avg_time = total_time / n_pages if n_pages else 0
-    cost_per_page = total_cost / n_pages if n_pages else 0
-    cost_per_successful = total_cost / len(successful) if successful else 0
+    cost_per_page = (total_cost / n_pages) if (total_cost is not None and n_pages) else None
+    cost_per_successful = (total_cost / len(successful)) if (total_cost is not None and successful) else None
     tokens_per_page = total_tokens / len(successful) if successful else 0
     fastest = min(results, key=lambda r: r["elapsed_seconds"])
     slowest = max(results, key=lambda r: r["elapsed_seconds"])
@@ -463,7 +466,7 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
             outcome=_outcome_col(r),
             inp=f"{r['input_tokens']:,}",
             out=f"{r['output_tokens']:,}",
-            cost=f"${r['cost_usd']:.6f}",
+            cost=f"${r['cost_usd']:.6f}" if r["cost_usd"] is not None else "N/A",
             t=f"{r['elapsed_seconds']:.1f}s",
         )
         for r in results
@@ -480,8 +483,8 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
     mistral_cost_rows = []
     if mistral_pages:
         mistral_cost_rows = [
-            f"| OCR cost (mistral-ocr-latest) | ${total_ocr_cost:.6f} |",
-            f"| Structure cost (chat model) | ${total_structure_cost:.6f} |",
+            f"| OCR cost (mistral-ocr-latest) | {f'${total_ocr_cost:.6f}' if total_ocr_cost is not None else 'N/A'} |",
+            f"| Structure cost (chat model) | {f'${total_structure_cost:.6f}' if total_structure_cost is not None else 'N/A'} |",
         ]
 
     ocr_row = (
@@ -517,10 +520,10 @@ def write_report(pdf_path: Path, results: list[dict], saved: dict[str, Path]) ->
         f"| Total output tokens | {total_output:,} |",
         *cache_rows,
         f"| **Total tokens** | **{total_tokens:,}** |",
-        f"| **Total cost (USD)** | **${total_cost:.6f}** |",
+        f"| **Total cost (USD)** | **{f'${total_cost:.6f}' if total_cost is not None else 'N/A'}** |",
         *mistral_cost_rows,
-        f"| Cost per page (all) | ${cost_per_page:.6f} |",
-        f"| Cost per successful page | ${cost_per_successful:.6f} |",
+        f"| Cost per page (all) | {f'${cost_per_page:.6f}' if cost_per_page is not None else 'N/A'} |",
+        f"| Cost per successful page | {f'${cost_per_successful:.6f}' if cost_per_successful is not None else 'N/A'} |",
         f"| Avg tokens per successful page | {tokens_per_page:,.0f} |",
         f"| Total processing time | {total_time:.1f}s ({total_time / 60:.1f} min) |",
         f"| Avg time per page | {avg_time:.1f}s |",

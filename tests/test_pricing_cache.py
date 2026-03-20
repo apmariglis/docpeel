@@ -36,7 +36,12 @@ _LITELLM_PAYLOAD = {
         "cache_read_input_token_cost": 0.00000003,
     },
     "gemini/gemini-2.0-flash": {
-        "litellm_provider": "google",
+        "litellm_provider": "google",  # older models use "google"
+        "input_cost_per_token": 0.0000001,
+        "output_cost_per_token": 0.0000004,
+    },
+    "gemini/gemini-2.5-flash-lite": {
+        "litellm_provider": "gemini",  # newer models use "gemini"
         "input_cost_per_token": 0.0000001,
         "output_cost_per_token": 0.0000004,
     },
@@ -215,6 +220,16 @@ def test_gemini_cost_returns_float(tmp_path):
     assert cost > 0
 
 
+def test_gemini_cost_returns_float_for_gemini_provider_label(tmp_path):
+    """Newer Gemini models use litellm_provider='gemini' not 'google'."""
+    cache_file = tmp_path / "pricing.json"
+    with _mock_litellm_fetch(), \
+         patch.object(pricing_mod, "_cache_path", return_value=cache_file):
+        cost = pricing_mod.gemini_cost("gemini-2.5-flash-lite", 1_000_000, 0)
+    assert isinstance(cost, float)
+    assert cost > 0
+
+
 def test_mistral_chat_cost_returns_float(tmp_path):
     cache_file = tmp_path / "pricing.json"
     with _mock_litellm_fetch(), \
@@ -260,7 +275,8 @@ def test_gemini_cost_returns_none_when_missing(tmp_path):
     assert cost is None
 
 
-def test_mistral_cost_returns_none_when_missing(tmp_path):
+def test_mistral_cost_returns_ocr_only_when_chat_rates_missing(tmp_path):
+    """When chat rates are unavailable, return OCR cost (not None) with a warning."""
     cache_file = tmp_path / "pricing.json"
     with _mock_litellm_unavailable(), \
          patch.object(pricing_mod, "_cache_path", return_value=cache_file):
@@ -268,7 +284,73 @@ def test_mistral_cost_returns_none_when_missing(tmp_path):
             "mistral-ocr-latest", "mistral-nonexistent",
             ocr_pages=1, chat_input_tokens=100, chat_output_tokens=100,
         )
-    assert cost is None
+    assert cost is not None
+    assert abs(cost - 0.001) < 1e-9  # only OCR cost (1 page × $0.001)
+
+
+def test_mistral_cost_warns_when_chat_rates_missing(tmp_path, caplog):
+    """A WARNING is logged when chat rates are unavailable."""
+    cache_file = tmp_path / "pricing.json"
+    with _mock_litellm_unavailable(), \
+         patch.object(pricing_mod, "_cache_path", return_value=cache_file), \
+         caplog.at_level(logging.WARNING):
+        pricing_mod.mistral_cost(
+            "mistral-ocr-latest", "mistral-nonexistent",
+            ocr_pages=1, chat_input_tokens=100, chat_output_tokens=100,
+        )
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Mistral OCR rate — bootstrapped to cache, not permanently hardcoded
+# ---------------------------------------------------------------------------
+
+
+def test_mistral_ocr_rate_bootstrapped_to_cache_on_first_use(tmp_path):
+    """With no cache file, OCR rate is written to pricing.json on first call."""
+    cache_file = tmp_path / "pricing.json"
+    with _mock_litellm_unavailable(), \
+         patch.object(pricing_mod, "_cache_path", return_value=cache_file):
+        pricing_mod.mistral_cost(
+            "mistral-ocr-latest", "mistral-small-latest",
+            ocr_pages=1, chat_input_tokens=0, chat_output_tokens=0,
+        )
+    assert cache_file.exists()
+    data = json.loads(cache_file.read_text())
+    assert "mistral-ocr-latest" in data["models"]
+    assert "ocr_per_page" in data["models"]["mistral-ocr-latest"]
+
+
+def test_mistral_ocr_rate_read_from_cache(tmp_path):
+    """Custom OCR rate in cache is used instead of the bootstrap default."""
+    cache_file = tmp_path / "pricing.json"
+    custom_rate = 0.002  # double the default
+    cache_file.write_text(json.dumps({
+        "last_updated": "2026-01-01T00:00:00",
+        "models": {
+            "mistral-ocr-latest": {"ocr_per_page": custom_rate},
+            "mistral-small-latest": {"input": 0.10, "output": 0.30},
+        },
+    }))
+    with _mock_litellm_unavailable(), \
+         patch.object(pricing_mod, "_cache_path", return_value=cache_file):
+        cost = pricing_mod.mistral_cost(
+            "mistral-ocr-latest", "mistral-small-latest",
+            ocr_pages=1, chat_input_tokens=0, chat_output_tokens=0,
+        )
+    assert abs(cost - custom_rate) < 1e-9
+
+
+def test_mistral_ocr_bootstrap_value_is_correct(tmp_path):
+    """Bootstrap default is $0.001 per page."""
+    cache_file = tmp_path / "pricing.json"
+    with _mock_litellm_unavailable(), \
+         patch.object(pricing_mod, "_cache_path", return_value=cache_file):
+        cost = pricing_mod.mistral_cost(
+            "mistral-ocr-latest", "mistral-small-latest",
+            ocr_pages=5, chat_input_tokens=0, chat_output_tokens=0,
+        )
+    assert abs(cost - 0.005) < 1e-9  # 5 × $0.001
 
 
 # ---------------------------------------------------------------------------

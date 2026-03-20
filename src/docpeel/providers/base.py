@@ -150,19 +150,23 @@ class Usage(NamedTuple):
     output_tokens: int
     cache_creation_tokens: int  # Anthropic-only; always 0 for Gemini/Mistral
     cache_read_tokens: int  # Anthropic-only; always 0 for Gemini/Mistral
-    cost_usd: float
+    cost_usd: float | None  # None when pricing is unavailable
 
     @staticmethod
     def zero() -> "Usage":
-        return Usage(0, 0, 0, 0, 0.0)
+        return Usage(0, 0, 0, 0, None)
 
     def __add__(self, other: "Usage") -> "Usage":
+        if self.cost_usd is None or other.cost_usd is None:
+            cost = None
+        else:
+            cost = self.cost_usd + other.cost_usd
         return Usage(
             self.input_tokens + other.input_tokens,
             self.output_tokens + other.output_tokens,
             self.cache_creation_tokens + other.cache_creation_tokens,
             self.cache_read_tokens + other.cache_read_tokens,
-            self.cost_usd + other.cost_usd,
+            cost,
         )
 
 

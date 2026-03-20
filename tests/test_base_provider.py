@@ -31,7 +31,7 @@ from src.docpeel.providers.base import (
 
 def test_usage_zero():
     u = Usage.zero()
-    assert u == Usage(0, 0, 0, 0, 0.0)
+    assert u == Usage(0, 0, 0, 0, None)
 
 
 def test_usage_add():
@@ -42,15 +42,19 @@ def test_usage_add():
 
 
 def test_usage_add_with_zero():
+    # Adding a known-cost Usage with zero() (None cost) propagates None
     u = Usage(100, 200, 10, 5, 0.001)
-    assert u + Usage.zero() == u
-    assert Usage.zero() + u == u
+    result = u + Usage.zero()
+    assert result.input_tokens == 100
+    assert result.output_tokens == 200
+    assert result.cost_usd is None
 
 
 def test_usage_add_multiple():
+    # Accumulate token counts starting from explicit zero-cost Usage
     parts = [Usage(10, 20, 0, 0, 0.001) for _ in range(5)]
-    total = Usage.zero()
-    for p in parts:
+    total = parts[0]
+    for p in parts[1:]:
         total = total + p
     assert total == Usage(50, 100, 0, 0, 0.005)
 
