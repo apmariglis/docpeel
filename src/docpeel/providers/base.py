@@ -153,7 +153,7 @@ PAGE_EXTRACTION_SCHEMA = {
             "type": "boolean",
             "description": (
                 "Set to true if this page should be excluded from the RAG system "
-                "because it contains no extractable game/reference content. "
+                "because it contains no extractable structured content. "
                 "Pages that must be skipped: table of contents pages, index pages, "
                 "blank pages, illustration-only pages with no text, "
                 "'This page intentionally left blank' pages, half-title pages "
@@ -185,7 +185,7 @@ PAGE_EXTRACTION_SCHEMA = {
             "description": (
                 "Single prominent display title for this page/section — "
                 "large decorative font, centred at the top, clearly set apart "
-                "from body text (e.g. 'Chapter 3: Combat', 'PC Races'). "
+                "from body text (e.g. 'Chapter 3: Market Analysis', 'Appendix A: Methodology'). "
                 "Combine label + subtitle into one string. Plain text only, "
                 "no markdown. null if no such heading exists."
             ),

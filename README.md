@@ -1,6 +1,28 @@
 # docpeel
 
-A Python CLI tool for extracting text and tables from PDFs using vision LLMs (Claude, Gemini, and Mistral). Designed for document digitisation pipelines where accuracy and structured output matter more than speed.
+A Python CLI tool for extracting text and tables from PDFs using vision LLMs (Claude, Gemini, and Mistral). Designed to produce clean, structured output for use in RAG (Retrieval-Augmented Generation) pipelines and search indexes — prioritising accuracy over speed.
+
+## Capabilities and current limitations
+
+docpeel works best on structured, book-like PDFs: printed text, tables, headings, and artwork on a standard page grid. It has been tested most thoroughly on dense, table-heavy reference books.
+
+**Works well:**
+- Pages with many tables, including tables that span multiple pages
+- Mixed text-and-artwork layouts — artwork and image-only pages are detected and handled cleanly; text pages are unaffected
+- Scanned PDFs where no embedded text exists
+- Pages blocked by content filters (automatic fallback chain)
+- Standard book boilerplate (table of contents, index, blank pages) — detected and excluded
+
+**Known limitations:**
+- **Decorative sidebars** — pages with a visually distinct margin column (coloured strip, short atmospheric phrases) may have that content mixed into the body text
+- **Diagram text** — text inside figures, flow charts, or labelled illustrations is not extracted
+- **Two-column dense layouts** — reading order reconstruction can fail on tightly packed two-column text
+- **Embedded-text PDFs** — every page is rendered to an image; native text is not reused
+- **Non-Latin scripts and low-quality scans** — untested / limited effectiveness
+
+See [STATUS.md](STATUS.md) for a more detailed breakdown and planned improvements.
+
+---
 
 ## Why vision LLMs?
 
