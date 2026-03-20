@@ -93,23 +93,22 @@ def _with_retry(is_filter_error, fn, step: str = ""):
             result = fn()
             if attempt > 0:
                 step_label = f" [{step}]" if step else ""
-                print(f"        ✓ Retry succeeded{step_label} (attempt {attempt + 1})")
+                logger.info("        ✓ Retry succeeded%s (attempt %d)", step_label, attempt + 1)
             return result
 
         except Exception as exc:
             if is_filter_error(exc):
                 raise
             if _is_rate_limit_error(exc):
-                print(f"        ⛔ {_build_rate_limit_message(exc, step)}")
+                logger.warning("        ⛔ %s", _build_rate_limit_message(exc, step))
                 raise
             last_exc = exc
             if attempt < _MAX_RETRIES:
                 delay = _backoff_delay(attempt)
                 step_label = f" [{step}]" if step else ""
-                print(
-                    f"        ⚠ Transient error{step_label} "
-                    f"(attempt {attempt + 1}/{_MAX_RETRIES}): "
-                    f"{exc} — retrying in {delay:.1f}s …"
+                logger.warning(
+                    "        ⚠ Transient error%s (attempt %d/%d): %s — retrying in %.1fs …",
+                    step_label, attempt + 1, _MAX_RETRIES, exc, delay,
                 )
                 time.sleep(delay)
     raise last_exc

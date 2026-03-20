@@ -28,9 +28,12 @@ deleted after extraction. Results are yielded one at a time so the caller
 can stream them to disk rather than accumulating a full-book list.
 """
 
+import logging
 import time
 from collections.abc import Iterator
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from pdf2image import convert_from_path
 from pdf2image import pdfinfo_from_path
@@ -193,7 +196,7 @@ class VisionExtractor:
         except Exception as exc:
             if not provider.is_content_filter_error(exc):
                 raise
-            print("    Content filter triggered — splitting into quadrants …")
+            logger.info("    Content filter triggered — splitting into quadrants …")
 
         # ── Stage 2: quadrant split ───────────────────────────────────────────
         quadrants = split_quadrants(page_image)
@@ -208,24 +211,24 @@ class VisionExtractor:
                 text, usage = provider.call(quad_img, quadrant_extract_prompt(label))
                 chunk_texts[label] = text
                 total_usage = total_usage + usage
-                print(f"      Chunk {label}: OK")
+                logger.debug("      Chunk %s: OK", label)
                 continue
             except Exception as exc:
                 if not provider.is_content_filter_error(exc):
                     chunk_texts[label] = ""
                     warnings.append(f"chunk '{label}' failed: {exc}")
-                    print(f"      Chunk {label}: error — skipped")
+                    logger.warning("      Chunk %s: error — skipped", label)
                     continue
 
             # Stage 2b: obfuscated retry
-            print(f"      Chunk {label}: blocked — retrying with obfuscated image ...")
+            logger.warning("      Chunk %s: blocked — retrying with obfuscated image …", label)
             try:
                 text, usage = provider.call(
                     obfuscate(quad_img), quadrant_extract_prompt(label)
                 )
                 chunk_texts[label] = text
                 total_usage = total_usage + usage
-                print(f"      Chunk {label}: OK (obfuscated retry)")
+                logger.debug("      Chunk %s: OK (obfuscated retry)", label)
                 continue
             except Exception as exc2:
                 if not provider.is_content_filter_error(exc2):
@@ -233,11 +236,11 @@ class VisionExtractor:
                     warnings.append(
                         f"chunk '{label}' failed on obfuscated retry: {exc2}"
                     )
-                    print(f"      Chunk {label}: error on obfuscated retry — skipped")
+                    logger.warning("      Chunk %s: error on obfuscated retry — skipped", label)
                     continue
 
             # Stage 2c: paraphrase
-            print(f"      Chunk {label}: blocked after obfuscation — paraphrasing ...")
+            logger.warning("      Chunk %s: blocked after obfuscation — paraphrasing …", label)
             try:
                 _, _, text, _, _, _, _, usage, san_warnings = self._paraphrase(
                     quad_img, is_full_page=False
@@ -250,27 +253,25 @@ class VisionExtractor:
                     f"chunk '{label}' could not be transcribed verbatim — "
                     "paraphrased instead (manual review recommended)"
                 )
-                print(
-                    f"      Chunk {label}: OK (paraphrased — manual review recommended)"
-                )
+                logger.warning("      Chunk %s: OK (paraphrased — manual review recommended)", label)
             except Exception as exc3:
                 chunk_texts[label] = ""
                 if provider.is_content_filter_error(exc3):
                     warnings.append(
                         f"chunk '{label}' blocked even on paraphrase attempt — skipped"
                     )
-                    print(f"      Chunk {label}: blocked on paraphrase — skipped")
+                    logger.warning("      Chunk %s: blocked on paraphrase — skipped", label)
                 else:
                     warnings.append(
                         f"chunk '{label}' failed on paraphrase attempt: {exc3}"
                     )
-                    print(f"      Chunk {label}: error on paraphrase — skipped")
+                    logger.warning("      Chunk %s: error on paraphrase — skipped", label)
 
         # ── Image-only page detection ─────────────────────────────────────────
         # If every quadrant is empty the page is pure artwork with no text.
         # Skip the stitch entirely — return empty text cleanly.
         if not any(t.strip() for t in chunk_texts.values()):
-            print("      All quadrants empty — image-only page, skipping stitch.")
+            logger.info("      All quadrants empty — image-only page, skipping stitch.")
             return (
                 False,
                 None,
@@ -297,7 +298,7 @@ class VisionExtractor:
 
         book_page = None
         try:
-            print("      Stitching with original page image for cross-check …")
+            logger.debug("      Stitching with original page image for cross-check …")
             result, stitch_usage = provider.call_with_image_and_text_structured(
                 page_image, STITCH_PROMPT + chunk_block
             )
@@ -307,7 +308,7 @@ class VisionExtractor:
         except Exception as exc:
             if not provider.is_content_filter_error(exc):
                 raise
-            print("      Stitch blocked by content filter — paraphrasing full page …")
+            logger.warning("      Stitch blocked by content filter — paraphrasing full page …")
             (
                 skip,
                 skip_reason,
@@ -444,7 +445,7 @@ def iter_pages(
     total_selected = len(pages_to_process) if pages is not None else n_pages
 
     for idx, page_num in enumerate(pages_to_process, start=1):
-        print(f"  Processing page {page_num} ({idx}/{total_selected}) …")
+        logger.info("  Processing page %d (%d/%d) …", page_num, idx, total_selected)
         t0 = time.perf_counter()
 
         # Load exactly one page — released at end of loop body
@@ -480,11 +481,11 @@ def iter_pages(
             elapsed = time.perf_counter() - t0
 
             if skip:
-                print(f"    Page {page_num} skipped ({skip_reason}).")
+                logger.info("    Page %d skipped (%s).", page_num, skip_reason)
             elif warnings:
-                print(f"    Page {page_num} stitched with warnings: {warnings}")
+                logger.warning("    Page %d stitched with warnings: %s", page_num, warnings)
             elif method == "quadrant-split":
-                print(f"    Page {page_num} stitched successfully from quadrants.")
+                logger.info("    Page %d stitched successfully from quadrants.", page_num)
 
             page_dict: dict = {
                 "page": page_num,
@@ -522,9 +523,10 @@ def iter_pages(
                 if isinstance(extractor, MistralExtractor)
                 else "full-page"
             )
-            print(f"  ⛔ ERROR Page {page_num}: {error_msg}")
-            print(
-                f"     ↳ Page {page_num} content is MISSING from the output — manual intervention required."
+            logger.error("  ⛔ ERROR Page %d: %s", page_num, error_msg)
+            logger.error(
+                "     ↳ Page %d content is MISSING from the output — manual intervention required.",
+                page_num,
             )
             yield {
                 "page": page_num,

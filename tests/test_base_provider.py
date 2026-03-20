@@ -241,9 +241,43 @@ def test_with_retry_raises_immediately_on_rate_limit():
     assert fn.call_count == 1  # no retries
 
 
-def test_with_retry_step_label_in_output(capsys):
+def test_with_retry_step_label_in_output(caplog):
+    import logging
     fn = MagicMock(side_effect=[ValueError("boom"), "ok"])
     with patch("src.docpeel.providers.base.time.sleep"):
-        _with_retry(lambda e: False, fn, step="structuring")
-    captured = capsys.readouterr()
-    assert "[structuring]" in captured.out
+        with caplog.at_level(logging.DEBUG):
+            _with_retry(lambda e: False, fn, step="structuring")
+    assert any("[structuring]" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# _with_retry — log levels
+# ---------------------------------------------------------------------------
+
+
+def test_with_retry_transient_error_logs_warning(caplog):
+    import logging
+    fn = MagicMock(side_effect=[ValueError("transient"), "ok"])
+    with patch("src.docpeel.providers.base.time.sleep"):
+        with caplog.at_level(logging.WARNING):
+            _with_retry(lambda e: False, fn)
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_with_retry_rate_limit_logs_warning(caplog):
+    import logging
+    exc = _make_exc(429)
+    fn = MagicMock(side_effect=exc)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(Exception):
+            _with_retry(lambda e: False, fn)
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+def test_with_retry_retry_success_logs_info(caplog):
+    import logging
+    fn = MagicMock(side_effect=[ValueError("transient"), "ok"])
+    with patch("src.docpeel.providers.base.time.sleep"):
+        with caplog.at_level(logging.DEBUG):
+            _with_retry(lambda e: False, fn)
+    assert any(r.levelno == logging.INFO for r in caplog.records)

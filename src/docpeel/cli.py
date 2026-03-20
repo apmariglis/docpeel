@@ -14,6 +14,7 @@ Usage:
 """
 
 import argparse
+import logging
 import time
 from pathlib import Path
 
@@ -72,6 +73,8 @@ def _parse_pages(spec: str) -> set[int]:
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     parser = argparse.ArgumentParser(
         description=(
             "Extract text and tables from a PDF using a vision LLM or OCR+LLM pipeline.\n\n"
