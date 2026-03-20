@@ -6,7 +6,7 @@ output/
 
 # Benchmark results and personal benchmark configs (only example is committed)
 scripts/benchmark/benchmark_results/
-scripts/benchmark/benchmarks*.yaml
+scripts/benchmark/*.yaml
 !scripts/benchmark/benchmarks.example.yaml
 
 # Python
