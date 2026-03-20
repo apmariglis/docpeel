@@ -237,7 +237,8 @@ def main() -> None:
     saved, results = stream_outputs(pdf_path, pages, provider_name=provider_name)
     report_path = write_report(pdf_path, results, saved)
 
-    total_cost = sum(r["cost_usd"] for r in results)
+    _costs = [r["cost_usd"] for r in results if r["cost_usd"] is not None]
+    total_cost = sum(_costs) if _costs else None
     skipped_pages = [r for r in results if r.get("skip")]
     quad_pages = [
         r
@@ -292,7 +293,8 @@ def main() -> None:
     print(f"  Per-page folder   : {saved['pages_dir']}")
     print(f"  JSON data         : {saved['json']}")
     print(f"  Cost report       : {report_path}")
-    print(f"  Total cost        : ${total_cost:.6f}")
+    cost_str = f"${total_cost:.6f}" if total_cost is not None else "N/A"
+    print(f"  Total cost        : {cost_str}")
     elapsed = time.perf_counter() - t0
     print(f"  Total time        : {elapsed:.1f}s ({elapsed / 60:.1f} min)")
 

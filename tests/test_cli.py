@@ -31,11 +31,13 @@ def _run(*argv):
     return exc_info.value.code
 
 
-def _run_ok(*argv, tmp_path):
+def _run_ok(*argv, tmp_path, results=None):
     """
     Call cli.main() with mocked provider + extraction so no API calls happen.
     Requires a real (empty) PDF path created at tmp_path/test.pdf.
     Returns the exit code (None = success).
+
+    results: optional list of page-result dicts to return from stream_outputs.
     """
     fake_pdf = tmp_path / "test.pdf"
     fake_pdf.write_bytes(b"%PDF-1.4")
@@ -43,14 +45,16 @@ def _run_ok(*argv, tmp_path):
     fake_provider = MagicMock()
     fake_provider.model_id = "claude-test-model"
 
+    fake_results = results if results is not None else []
+
     with (
         patch.object(sys, "argv", ["docpeel", str(fake_pdf), *argv]),
         patch.object(cli_mod, "build_provider", return_value=fake_provider),
-        patch.object(cli_mod, "page_count", return_value=0),
+        patch.object(cli_mod, "page_count", return_value=len(fake_results)),
         patch.object(cli_mod, "iter_pages", return_value=iter([])),
         patch.object(cli_mod, "stream_outputs", return_value=(
             {"combined_md": Path("x"), "pages_dir": Path("x"), "json": Path("x"), "run_folder": Path("x")},
-            [],
+            fake_results,
         )),
         patch.object(cli_mod, "write_report", return_value=Path("report.md")),
         patch.object(cli_mod, "resolve_run_folder", return_value=Path("output/test[1]")),
@@ -60,6 +64,22 @@ def _run_ok(*argv, tmp_path):
             return None
         except SystemExit as e:
             return e.code
+
+
+def _make_page_result(page=1, cost_usd=0.001, error=None, skip=False):
+    return {
+        "page": page,
+        "cost_usd": cost_usd,
+        "input_tokens": 100,
+        "output_tokens": 50,
+        "elapsed_seconds": 1.0,
+        "extraction_method": "full-page",
+        "error": error,
+        "skip": skip,
+        "skip_reason": None,
+        "paraphrased": None,
+        "chunk_warnings": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -187,3 +207,42 @@ def test_default_sets_info_level(tmp_path):
     import logging
     _run_ok("--vision-model", "claude-x", tmp_path=tmp_path)
     assert logging.getLogger("docpeel").level == logging.INFO
+
+
+# ---------------------------------------------------------------------------
+# Post-processing: cost summary with None costs
+# ---------------------------------------------------------------------------
+
+
+def test_summary_with_known_costs_does_not_raise(tmp_path, capsys):
+    results = [_make_page_result(page=1, cost_usd=0.001),
+               _make_page_result(page=2, cost_usd=0.002)]
+    code = _run_ok("--vision-model", "claude-x", tmp_path=tmp_path, results=results)
+    assert code is None
+    out = capsys.readouterr().out
+    assert "0.003000" in out
+
+
+def test_summary_with_none_cost_does_not_raise(tmp_path):
+    """When pricing is unavailable cost_usd=None — must not crash."""
+    results = [_make_page_result(page=1, cost_usd=None)]
+    code = _run_ok("--vision-model", "claude-x", tmp_path=tmp_path, results=results)
+    assert code is None
+
+
+def test_summary_shows_na_when_cost_none(tmp_path, capsys):
+    results = [_make_page_result(page=1, cost_usd=None)]
+    _run_ok("--vision-model", "claude-x", tmp_path=tmp_path, results=results)
+    out = capsys.readouterr().out
+    assert "N/A" in out
+
+
+def test_summary_mixed_none_and_float_costs(tmp_path, capsys):
+    """Known costs are summed; None entries are skipped — partial total shown."""
+    results = [
+        _make_page_result(page=1, cost_usd=0.001),
+        _make_page_result(page=2, cost_usd=None),
+    ]
+    _run_ok("--vision-model", "claude-x", tmp_path=tmp_path, results=results)
+    out = capsys.readouterr().out
+    assert "0.001000" in out
