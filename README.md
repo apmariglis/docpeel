@@ -272,6 +272,23 @@ write_report(pdf, results, saved)
 
 ---
 
+## Benchmarking and feedback
+
+The `scripts/benchmark/` folder contains a script that runs docpeel against a set of pages you define, evaluates the extraction quality using a vision LLM judge, and produces a markdown report. It's useful for testing how well the tool handles a specific document before committing to a full run.
+
+```bash
+# Copy the example config, fill in your PDF path and pages, then run:
+cp scripts/benchmark/benchmarks.example.yaml scripts/benchmark/my-benchmarks.yaml
+# edit my-benchmarks.yaml
+python scripts/benchmark/benchmark.py --config scripts/benchmark/my-benchmarks.yaml
+```
+
+If you try it on a document that the tool handles poorly, sharing the benchmark report **and the page images** (saved under `scripts/benchmark/benchmark_results/.../extractions/`) in an issue is the most useful form of feedback — it gives concrete, per-page quality scores alongside the actual source material, making it much easier to diagnose and fix the issue.
+
+See [`scripts/benchmark/benchmarks.example.yaml`](scripts/benchmark/benchmarks.example.yaml) for the full list of options.
+
+---
+
 ## Development
 
 ```bash
