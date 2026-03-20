@@ -14,7 +14,7 @@ A CLI tool that converts PDF files to structured markdown + JSON using vision LL
 
 | Module | Responsibility |
 |---|---|
-| `cli.py` | Entry point. Parses args (`--vision-model`, `--ocr`, `--structure-model`, `--dpi`), validates flag combinations, wires modules together, prints run summary. |
+| `cli.py` | Entry point. Parses args (`--vision-model`, `--ocr`, `--structure-model`, `--dpi`, `--pages`, `--verbose`/`--quiet`), validates flag combinations, wires modules together, prints run summary. |
 | `providers/` | LLM provider package. See layout below. |
 | `extraction.py` | Per-page orchestration. Two extractor classes (`VisionExtractor`, `MistralExtractor`) plus `iter_pages()` dispatcher. Yields page result dicts one at a time. |
 | `output.py` | Streaming writes to disk: combined markdown, per-page markdowns, JSONL, cost report. |
@@ -120,6 +120,8 @@ Standalone class, not a `VisionProvider` subclass. The two-step pipeline is arch
 | `structure_with_retry(ocr_text, extra_context)` | Structuring chat call with backoff, returns `(result_dict, usage)` |
 | `ocr_page_cost(n_pages)` | OCR cost calculation for use by `MistralExtractor` |
 | `drain_sanitisation_warnings()` | Returns and clears warnings from the last `structure()` call |
+| `resolve_model_id()` | Resolves the chat model alias to its canonical ID; delegates to the embedded vision provider when a structure fn is injected |
+| `close()` | Closes the underlying HTTP client if supported; call before process exit to avoid SDK async-cleanup errors |
 
 **Structured output enforcement:**
 - Anthropic: forced `tool_choice` with `PAGE_EXTRACTION_SCHEMA` as tool definition
