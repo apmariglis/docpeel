@@ -47,7 +47,7 @@ Pages that are image-only (no extractable text) are detected at the quadrant sta
 
 ## Output
 
-For each run, four output artefacts are written under `output/<provider>_<pdf-stem>_<n>/`. The JSONL output is designed to be straightforward to ingest into search indexes, vector databases, or RAG pipelines, but the tool works equally well as a standalone PDF digitiser.
+For each run, four output artefacts are written under `output/<provider>_<pdf-stem>_<n>/`. The JSONL output is designed to be straightforward to ingest into search indexes, vector databases, or RAG pipelines, but the tool works equally well as a standalone PDF digitiser. [ask-the-book](https://github.com/apmariglis/ask-the-book) is a companion RAG system that ingests this JSONL format directly.
 
 | File | Description |
 |---|---|
