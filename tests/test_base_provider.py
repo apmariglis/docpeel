@@ -17,6 +17,7 @@ from src.docpeel.providers.base import (
     _MAX_RETRIES,
     _backoff_delay,
     _build_rate_limit_message,
+    _is_client_error,
     _is_rate_limit_error,
     _with_retry,
 )
@@ -281,3 +282,47 @@ def test_with_retry_retry_success_logs_info(caplog):
         with caplog.at_level(logging.DEBUG):
             _with_retry(lambda e: False, fn)
     assert any(r.levelno == logging.INFO for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# _is_client_error
+# ---------------------------------------------------------------------------
+
+
+def test_is_client_error_true_for_400():
+    assert _is_client_error(_make_exc(400)) is True
+
+
+def test_is_client_error_true_for_403():
+    assert _is_client_error(_make_exc(403)) is True
+
+
+def test_is_client_error_false_for_429():
+    # 429 is handled separately as rate-limit, not a generic client error
+    assert _is_client_error(_make_exc(429)) is False
+
+
+def test_is_client_error_false_for_500():
+    assert _is_client_error(_make_exc(500)) is False
+
+
+def test_is_client_error_false_for_no_status():
+    assert _is_client_error(ValueError("no http")) is False
+
+
+def test_with_retry_client_error_not_retried():
+    exc = _make_exc(400)
+    fn = MagicMock(side_effect=exc)
+    with pytest.raises(Exception):
+        _with_retry(lambda e: False, fn)
+    assert fn.call_count == 1  # called once, never retried
+
+
+def test_with_retry_client_error_logs_error(caplog):
+    import logging
+    exc = _make_exc(400)
+    fn = MagicMock(side_effect=exc)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(Exception):
+            _with_retry(lambda e: False, fn)
+    assert any(r.levelno == logging.ERROR for r in caplog.records)

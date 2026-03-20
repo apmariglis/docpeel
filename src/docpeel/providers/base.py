@@ -37,6 +37,13 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return getattr(raw, "status_code", None) == 429
 
 
+def _is_client_error(exc: Exception) -> bool:
+    """Return True for 4xx errors other than 429 — these are never worth retrying."""
+    raw = getattr(exc, "raw_response", None)
+    status = getattr(raw, "status_code", None)
+    return status is not None and 400 <= status < 500 and status != 429
+
+
 def _build_rate_limit_message(exc: Exception, step: str = "") -> str:
     """
     Interpret rate-limit headers into a plain-English diagnosis.
@@ -101,6 +108,10 @@ def _with_retry(is_filter_error, fn, step: str = ""):
                 raise
             if _is_rate_limit_error(exc):
                 logger.warning("        ⛔ %s", _build_rate_limit_message(exc, step))
+                raise
+            if _is_client_error(exc):
+                step_label = f" [{step}]" if step else ""
+                logger.error("        ⛔ Client error%s (not retrying): %s", step_label, exc)
                 raise
             last_exc = exc
             if attempt < _MAX_RETRIES:
