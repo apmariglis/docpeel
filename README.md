@@ -151,20 +151,7 @@ Body text here...
 
 ## Installation
 
-Requires Python 3.10+ and [Poppler](https://poppler.freedesktop.org/) (used by `pdf2image` to render PDF pages).
-
-**Install Poppler:**
-
-```bash
-# macOS
-brew install poppler
-
-# Ubuntu / Debian
-sudo apt-get install poppler-utils
-
-# Windows — download from https://github.com/oschwartz10612/poppler-windows/releases
-# and add the bin/ folder to your PATH
-```
+Requires Python 3.10+.
 
 **Install docpeel:**
 

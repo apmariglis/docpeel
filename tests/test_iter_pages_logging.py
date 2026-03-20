@@ -26,16 +26,28 @@ def _run_iter_pages(provider, error):
     Drive iter_pages() for a single-page PDF, with the extractor raising
     the given error. Returns the consumed results list.
     """
-    fake_image = MagicMock()
+    # Build a fitz mock that returns a valid-looking pixmap
+    fake_pix = MagicMock()
+    fake_pix.width = 100
+    fake_pix.height = 100
+    fake_pix.samples = b"\xff" * (100 * 100 * 3)
+    mock_page = MagicMock()
+    mock_page.get_pixmap.return_value = fake_pix
+    mock_doc = MagicMock()
+    mock_doc.__getitem__ = MagicMock(return_value=mock_page)
+    mock_doc.__enter__ = MagicMock(return_value=mock_doc)
+    mock_doc.__exit__ = MagicMock(return_value=False)
 
     with (
         patch("src.docpeel.extraction.page_count", return_value=1),
-        patch("src.docpeel.extraction.convert_from_path", return_value=[fake_image]),
+        patch("src.docpeel.extraction.fitz") as mock_fitz,
         patch(
             "src.docpeel.extraction.VisionExtractor.extract",
             side_effect=error,
         ),
     ):
+        mock_fitz.open.return_value = mock_doc
+        mock_fitz.Matrix.return_value = MagicMock()
         return list(iter_pages(MagicMock(), provider))
 
 

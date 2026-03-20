@@ -31,13 +31,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import fitz  # PyMuPDF
 import yaml
 from dotenv import load_dotenv
-from pdf2image import convert_from_path
+from PIL import Image
 
 try:
     from docpeel.providers.provider_factory import build_provider
-    from docpeel.extraction import iter_pages
+    from docpeel.extraction import iter_pages, _PDF_POINTS_PER_INCH
     from docpeel.cli import _parse_pages
     from docpeel.pricing import anthropic_cost
 except ImportError as exc:
@@ -338,11 +339,13 @@ def _render_page_images(pdf_path: Path, pages_filter: set[int], dpi: int) -> dic
     """Render the requested pages to PIL images, printing per-page progress."""
     images = {}
     n = len(pages_filter)
-    for idx, page_num in enumerate(sorted(pages_filter), start=1):
-        print(f"    Page {page_num} ({idx}/{n}) … ", end="", flush=True)
-        imgs = convert_from_path(str(pdf_path), dpi=dpi, first_page=page_num, last_page=page_num)
-        images[page_num] = imgs[0]
-        print("rendered")
+    with fitz.open(str(pdf_path)) as doc:
+        for idx, page_num in enumerate(sorted(pages_filter), start=1):
+            print(f"    Page {page_num} ({idx}/{n}) … ", end="", flush=True)
+            page = doc[page_num - 1]
+            pix = page.get_pixmap(matrix=fitz.Matrix(dpi / _PDF_POINTS_PER_INCH, dpi / _PDF_POINTS_PER_INCH))
+            images[page_num] = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            print("rendered")
     return images
 
 

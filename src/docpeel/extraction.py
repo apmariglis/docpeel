@@ -22,10 +22,10 @@ MistralExtractor
 
 Memory model
 ------------
-convert_from_path() is called one page at a time (first_page/last_page) so
-only a single PIL image lives in RAM at once. The page image is explicitly
-deleted after extraction. Results are yielded one at a time so the caller
-can stream them to disk rather than accumulating a full-book list.
+Each page is opened and rendered one at a time so only a single PIL image
+lives in RAM at once. The page image is explicitly deleted after extraction.
+Results are yielded one at a time so the caller can stream them to disk
+rather than accumulating a full-book list.
 """
 
 import logging
@@ -33,11 +33,14 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import fitz  # PyMuPDF
+from PIL import Image
+
 logger = logging.getLogger(__name__)
 
-from pdf2image import convert_from_path
-from pdf2image import pdfinfo_from_path
-from PIL import Image
+# PDF coordinates are measured in points (1 point = 1/72 inch).
+# Multiply by dpi/72 to get the correct pixel scale when rendering.
+_PDF_POINTS_PER_INCH = 72
 
 from docpeel.image_utils import obfuscate
 from docpeel.image_utils import split_quadrants
@@ -407,8 +410,8 @@ class MistralExtractor:
 
 def page_count(pdf_path: Path) -> int:
     """Return the total number of pages in the PDF without loading any images."""
-    info = pdfinfo_from_path(str(pdf_path))
-    return info["Pages"]
+    with fitz.open(str(pdf_path)) as doc:
+        return len(doc)
 
 
 # ── iter_pages ────────────────────────────────────────────────────────────────
@@ -449,13 +452,10 @@ def iter_pages(
         t0 = time.perf_counter()
 
         # Load exactly one page — released at end of loop body
-        page_images = convert_from_path(
-            str(pdf_path),
-            dpi=dpi,
-            first_page=page_num,
-            last_page=page_num,
-        )
-        page_image = page_images[0]
+        with fitz.open(str(pdf_path)) as doc:
+            page = doc[page_num - 1]
+            pix = page.get_pixmap(matrix=fitz.Matrix(dpi / _PDF_POINTS_PER_INCH, dpi / _PDF_POINTS_PER_INCH))
+        page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
         try:
             extract_result = extractor.extract(page_image, page_num)
@@ -554,4 +554,3 @@ def iter_pages(
             # Explicitly release the PIL image and its pixel buffer
             page_image.close()
             del page_image
-            del page_images
