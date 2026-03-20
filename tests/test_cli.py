@@ -173,38 +173,17 @@ def test_verbose_and_quiet_mutually_exclusive(tmp_path):
 
 def test_verbose_sets_debug_level(tmp_path):
     import logging
-    captured = {}
-
-    def fake_basicConfig(**kwargs):
-        captured.update(kwargs)
-
-    with patch("src.docpeel.cli.logging.basicConfig", side_effect=fake_basicConfig):
-        _run_ok("--vision-model", "claude-x", "--verbose", tmp_path=tmp_path)
-
-    assert captured.get("level") == logging.DEBUG
+    _run_ok("--vision-model", "claude-x", "--verbose", tmp_path=tmp_path)
+    assert logging.getLogger("docpeel").level == logging.DEBUG
 
 
 def test_quiet_sets_warning_level(tmp_path):
     import logging
-    captured = {}
-
-    def fake_basicConfig(**kwargs):
-        captured.update(kwargs)
-
-    with patch("src.docpeel.cli.logging.basicConfig", side_effect=fake_basicConfig):
-        _run_ok("--vision-model", "claude-x", "--quiet", tmp_path=tmp_path)
-
-    assert captured.get("level") == logging.WARNING
+    _run_ok("--vision-model", "claude-x", "--quiet", tmp_path=tmp_path)
+    assert logging.getLogger("docpeel").level == logging.WARNING
 
 
 def test_default_sets_info_level(tmp_path):
     import logging
-    captured = {}
-
-    def fake_basicConfig(**kwargs):
-        captured.update(kwargs)
-
-    with patch("src.docpeel.cli.logging.basicConfig", side_effect=fake_basicConfig):
-        _run_ok("--vision-model", "claude-x", tmp_path=tmp_path)
-
-    assert captured.get("level") == logging.INFO
+    _run_ok("--vision-model", "claude-x", tmp_path=tmp_path)
+    assert logging.getLogger("docpeel").level == logging.INFO

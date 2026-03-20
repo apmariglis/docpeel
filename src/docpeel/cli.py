@@ -164,7 +164,11 @@ def main() -> None:
         log_level = logging.WARNING
     else:
         log_level = logging.INFO
-    logging.basicConfig(level=log_level, format="%(message)s")
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logging.getLogger("docpeel").setLevel(log_level)
+    logging.getLogger("docpeel").addHandler(handler)
 
     # ── Validate flag combinations — print full help on any error ─────────────
     errors = []
