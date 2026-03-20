@@ -17,6 +17,7 @@ from src.docpeel.providers.base import (
     _MAX_RETRIES,
     _backoff_delay,
     _build_rate_limit_message,
+    _http_status,
     _is_client_error,
     _is_rate_limit_error,
     _with_retry,
@@ -92,12 +93,37 @@ def test_backoff_delay_always_positive():
 
 
 def _make_exc(status_code=None):
+    """Build an exception with status on raw_response (Mistral SDK style)."""
     exc = Exception("test")
     if status_code is not None:
         raw = MagicMock()
         raw.status_code = status_code
         exc.raw_response = raw
     return exc
+
+
+def _make_exc_direct(status_code):
+    """Build an exception with status_code directly on it (Anthropic SDK style)."""
+    exc = Exception("test")
+    exc.status_code = status_code
+    return exc
+
+
+# ---------------------------------------------------------------------------
+# _http_status — SDK-agnostic status extraction
+# ---------------------------------------------------------------------------
+
+
+def test_http_status_from_raw_response():
+    assert _http_status(_make_exc(400)) == 400
+
+
+def test_http_status_from_direct_attribute():
+    assert _http_status(_make_exc_direct(400)) == 400
+
+
+def test_http_status_none_when_absent():
+    assert _http_status(Exception("plain")) is None
 
 
 def test_is_rate_limit_error_429():
@@ -326,3 +352,34 @@ def test_with_retry_client_error_logs_error(caplog):
         with pytest.raises(Exception):
             _with_retry(lambda e: False, fn)
     assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic SDK style: status_code directly on exception
+# ---------------------------------------------------------------------------
+
+
+def test_is_client_error_direct_400():
+    assert _is_client_error(_make_exc_direct(400)) is True
+
+
+def test_is_rate_limit_error_direct_429():
+    assert _is_rate_limit_error(_make_exc_direct(429)) is True
+
+
+def test_with_retry_client_error_not_retried_direct():
+    """Anthropic SDK raises exc.status_code=400 — must not be retried."""
+    exc = _make_exc_direct(400)
+    fn = MagicMock(side_effect=exc)
+    with pytest.raises(Exception):
+        _with_retry(lambda e: False, fn)
+    assert fn.call_count == 1
+
+
+def test_with_retry_rate_limit_not_retried_direct():
+    """Anthropic SDK raises exc.status_code=429 — must not be retried."""
+    exc = _make_exc_direct(429)
+    fn = MagicMock(side_effect=exc)
+    with pytest.raises(Exception):
+        _with_retry(lambda e: False, fn)
+    assert fn.call_count == 1

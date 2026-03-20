@@ -32,15 +32,32 @@ def _backoff_delay(attempt: int) -> float:
     return delay
 
 
-def _is_rate_limit_error(exc: Exception) -> bool:
+def _http_status(exc: Exception) -> int | None:
+    """Extract HTTP status code from an exception regardless of SDK conventions.
+
+    Anthropic SDK sets ``exc.status_code`` directly on the exception.
+    Mistral SDK wraps the response in ``exc.raw_response.status_code``.
+    Returns None if no status code can be found.
+    """
+    # Direct attribute (Anthropic SDK, google-genai, etc.)
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        return status
+    # Wrapped response object (Mistral SDK)
     raw = getattr(exc, "raw_response", None)
-    return getattr(raw, "status_code", None) == 429
+    status = getattr(raw, "status_code", None)
+    if isinstance(status, int):
+        return status
+    return None
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    return _http_status(exc) == 429
 
 
 def _is_client_error(exc: Exception) -> bool:
     """Return True for 4xx errors other than 429 — these are never worth retrying."""
-    raw = getattr(exc, "raw_response", None)
-    status = getattr(raw, "status_code", None)
+    status = _http_status(exc)
     return status is not None and 400 <= status < 500 and status != 429
 
 
