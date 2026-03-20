@@ -296,6 +296,10 @@ def main() -> None:
     elapsed = time.perf_counter() - t0
     print(f"  Total time        : {elapsed:.1f}s ({elapsed / 60:.1f} min)")
 
+    # Close the Mistral HTTP client explicitly to avoid SDK async-cleanup errors at shutdown
+    if hasattr(provider, "close"):
+        provider.close()
+
 
 if __name__ == "__main__":
     main()

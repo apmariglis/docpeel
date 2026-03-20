@@ -122,6 +122,10 @@ class MistralProvider:
         self._structure_fn = structure_fn
         self._sanitisation_warnings: list[str] = []
 
+    def close(self) -> None:
+        """Close the underlying HTTP client. Call before process exit to avoid SDK cleanup errors."""
+        self._client.close()
+
     @property
     def model_id(self) -> str:
         # If an external structure_fn was injected, we can't know its model ID here.
