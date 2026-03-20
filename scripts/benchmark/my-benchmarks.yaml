@@ -1,0 +1,44 @@
+# docpeel benchmark configuration
+#
+# Each entry under `benchmarks` defines a PDF and the pages to test.
+# Use pages you consider challenging or representative of edge cases.
+# PDFs are not included in the repository — provide absolute or relative paths
+# to your own files.
+#
+# Each entry under `extraction_paths` defines one provider/model combination
+# to run. The script tries all paths and skips any where a required API key
+# is absent from the environment.
+#
+# Run:
+#   python scripts/benchmark.py --config benchmarks.yaml
+
+benchmarks:
+  - pdf: /home/sskoull/Desktop/SHARED/lptps/code/rags/ph-chatrag/data/the-solo-adventurers-toolbox_part_I.pdf
+    pages: "36-40"
+    notes: "Dense tables, some artwork pages — representative sample"
+
+  # - pdf: /path/to/another.pdf
+  #   pages: "3-6"
+  #   notes: "Two-column layout"
+
+extraction_paths:
+  # Vision path — Anthropic
+  - vision_model: claude-sonnet-4-6
+
+  # Vision path — Gemini
+  - vision_model: gemini-2.5-flash-lite
+  - vision_model: gemini-2.5-flash
+
+  # # OCR path — Mistral OCR + Mistral chat structure
+  # - ocr: mistral
+  #   structure_model: mistral-small-latest
+
+  # OCR path — Mistral OCR + Gemini structure
+  - ocr: mistral
+    structure_model: gemini-2.5-flash-lite
+
+  # OCR path — Mistral OCR + Anthropic structure
+  - ocr: mistral
+    structure_model: claude-haiku-4-5-20251001
+  - ocr: mistral
+    structure_model: claude-sonnet-4-6
