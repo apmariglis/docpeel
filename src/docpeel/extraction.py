@@ -384,7 +384,11 @@ class MistralExtractor:
             output_tokens=chat_usage.output_tokens,
             cache_creation_tokens=0,
             cache_read_tokens=0,
-            cost_usd=ocr_cost + chat_usage.cost_usd,
+            cost_usd=(
+                ocr_cost + chat_usage.cost_usd
+                if chat_usage.cost_usd is not None
+                else None
+            ),
         )
 
         skip, skip_reason, text, title, book_page, tables, watermarks = _unpack(result)
