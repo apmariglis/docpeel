@@ -73,8 +73,6 @@ def _parse_pages(spec: str) -> set[int]:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-
     parser = argparse.ArgumentParser(
         description=(
             "Extract text and tables from a PDF using a vision LLM or OCR+LLM pipeline.\n\n"
@@ -145,7 +143,28 @@ def main() -> None:
             "150 DPI is sufficient for most tasks; use 200-300 for very small or dense text."
         ),
     )
+    verbosity = parser.add_mutually_exclusive_group()
+    verbosity.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        default=False,
+        help="Enable debug logging (per-chunk detail, stitch steps).",
+    )
+    verbosity.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        default=False,
+        help="Suppress progress messages; show only warnings and errors.",
+    )
     args = parser.parse_args()
+
+    if args.verbose:
+        log_level = logging.DEBUG
+    elif args.quiet:
+        log_level = logging.WARNING
+    else:
+        log_level = logging.INFO
+    logging.basicConfig(level=log_level, format="%(message)s")
 
     # ── Validate flag combinations — print full help on any error ─────────────
     errors = []

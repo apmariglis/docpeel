@@ -147,3 +147,64 @@ def test_dpi_default_is_150(tmp_path):
 def test_custom_dpi_accepted(tmp_path):
     code = _run_ok("--vision-model", "claude-x", "--dpi", "200", tmp_path=tmp_path)
     assert code is None
+
+
+# ---------------------------------------------------------------------------
+# --verbose / --quiet
+# ---------------------------------------------------------------------------
+
+
+def test_verbose_flag_accepted(tmp_path):
+    code = _run_ok("--vision-model", "claude-x", "--verbose", tmp_path=tmp_path)
+    assert code is None
+
+
+def test_quiet_flag_accepted(tmp_path):
+    code = _run_ok("--vision-model", "claude-x", "--quiet", tmp_path=tmp_path)
+    assert code is None
+
+
+def test_verbose_and_quiet_mutually_exclusive(tmp_path):
+    fake_pdf = tmp_path / "test.pdf"
+    fake_pdf.write_bytes(b"%PDF-1.4")
+    code = _run(str(fake_pdf), "--vision-model", "claude-x", "--verbose", "--quiet")
+    assert code == 2
+
+
+def test_verbose_sets_debug_level(tmp_path):
+    import logging
+    captured = {}
+
+    def fake_basicConfig(**kwargs):
+        captured.update(kwargs)
+
+    with patch("src.docpeel.cli.logging.basicConfig", side_effect=fake_basicConfig):
+        _run_ok("--vision-model", "claude-x", "--verbose", tmp_path=tmp_path)
+
+    assert captured.get("level") == logging.DEBUG
+
+
+def test_quiet_sets_warning_level(tmp_path):
+    import logging
+    captured = {}
+
+    def fake_basicConfig(**kwargs):
+        captured.update(kwargs)
+
+    with patch("src.docpeel.cli.logging.basicConfig", side_effect=fake_basicConfig):
+        _run_ok("--vision-model", "claude-x", "--quiet", tmp_path=tmp_path)
+
+    assert captured.get("level") == logging.WARNING
+
+
+def test_default_sets_info_level(tmp_path):
+    import logging
+    captured = {}
+
+    def fake_basicConfig(**kwargs):
+        captured.update(kwargs)
+
+    with patch("src.docpeel.cli.logging.basicConfig", side_effect=fake_basicConfig):
+        _run_ok("--vision-model", "claude-x", tmp_path=tmp_path)
+
+    assert captured.get("level") == logging.INFO
