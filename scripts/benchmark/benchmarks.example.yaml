@@ -25,6 +25,10 @@ extraction_paths:
   # Vision path — Anthropic
   - vision_model: claude-sonnet-4-6
 
+  # Same model at higher DPI to compare quality vs cost
+  # - vision_model: claude-sonnet-4-6
+  #   dpi: 300
+
   # Vision path — Gemini
   - vision_model: gemini-2.5-flash-lite
   - vision_model: gemini-2.5-flash

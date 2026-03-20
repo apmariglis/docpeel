@@ -134,8 +134,13 @@ def _anonymize_record(record: dict) -> dict:
 def _path_label(path: dict) -> str:
     """Human-readable label for an extraction path config dict."""
     if "vision_model" in path:
-        return path["vision_model"]
-    return f"mistral-ocr+{path['structure_model']}"
+        base = path["vision_model"]
+    else:
+        base = f"mistral-ocr+{path['structure_model']}"
+    path_dpi = path.get("dpi")
+    if path_dpi and path_dpi != DEFAULT_DPI:
+        return f"{base} ({path_dpi} DPI)"
+    return base
 
 
 def _required_env_keys(path: dict) -> set[str]:
@@ -198,7 +203,12 @@ def _bool_icon(val) -> str:
     return "—"
 
 
-def _render_report(results: list[dict], run_config: dict, costs: dict | None = None) -> str:
+def _render_report(
+    results: list[dict],
+    run_config: dict,
+    costs: dict | None = None,
+    extraction_paths: list[dict] | None = None,
+) -> str:
     lines: list[str] = []
 
     lines.append("# Benchmark Report\n")
@@ -206,6 +216,14 @@ def _render_report(results: list[dict], run_config: dict, costs: dict | None = N
     lines.append(f"- **Date**: {run_config['timestamp']}")
     lines.append(f"- **Judge model**: {run_config['judge_model']}")
     lines.append(f"- **Git commit**: {run_config['git_commit']}")
+    if extraction_paths is not None:
+        ref_dpi = run_config.get("dpi", DEFAULT_DPI)
+        lines.append(f"- **Reference DPI** (judge images): {ref_dpi}")
+        lines.append("- **Extraction paths**:")
+        for path in extraction_paths:
+            label = _path_label(path)
+            path_dpi = path.get("dpi", DEFAULT_DPI)
+            lines.append(f"  - {label} — DPI: {path_dpi}")
     lines.append("")
 
     # Summary table
@@ -319,11 +337,14 @@ def _render_report(results: list[dict], run_config: dict, costs: dict | None = N
 
 def _run_extraction(pdf_path: Path, pages_filter: set[int], path_config: dict, dpi: int) -> list[dict]:
     """Run docpeel extraction for one path config, printing per-page progress."""
+    # dpi may be set per-path; pop it so it isn't passed to build_provider
+    path_config = dict(path_config)
+    effective_dpi = path_config.pop("dpi", dpi)
     provider = build_provider(**path_config)
     provider.resolve_model_id()
     results = []
     n = len(pages_filter)
-    for idx, record in enumerate(iter_pages(pdf_path, provider, dpi=dpi, pages=pages_filter), start=1):
+    for idx, record in enumerate(iter_pages(pdf_path, provider, dpi=effective_dpi, pages=pages_filter), start=1):
         method  = record.get("extraction_method", "—")
         elapsed = record.get("elapsed_seconds")
         elapsed_str = f"{elapsed:.1f}s" if elapsed is not None else "—"
@@ -599,7 +620,8 @@ def _run_benchmark(config: dict, judge_model: str, output_dir: Path, dpi: int) -
     (output_dir / "run_config.json").write_text(
         json.dumps({**run_config, "extraction_paths": extraction_paths}, indent=2)
     )
-    report = _render_report(all_results, run_config, costs=costs)
+    report = _render_report(all_results, run_config, costs=costs,
+                            extraction_paths=extraction_paths)
     report_path = output_dir / "report.md"
     report_path.write_text(report)
 

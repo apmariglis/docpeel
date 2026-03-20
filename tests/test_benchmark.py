@@ -128,6 +128,23 @@ def test_path_label_ocr_gemini_structure():
     assert label == "mistral-ocr+gemini-2.5-flash-lite"
 
 
+def test_path_label_with_non_default_dpi():
+    label = bm._path_label({"vision_model": "claude-sonnet-4-6", "dpi": 300})
+    assert label == "claude-sonnet-4-6 (300 DPI)"
+
+
+def test_path_label_with_default_dpi_omitted():
+    """Default DPI (150) should not appear in the label."""
+    label = bm._path_label({"vision_model": "claude-sonnet-4-6", "dpi": 150})
+    assert label == "claude-sonnet-4-6"
+
+
+def test_path_label_without_dpi_field():
+    """No dpi field — same as default, no suffix."""
+    label = bm._path_label({"vision_model": "claude-sonnet-4-6"})
+    assert label == "claude-sonnet-4-6"
+
+
 # ---------------------------------------------------------------------------
 # _required_env_keys
 # ---------------------------------------------------------------------------
@@ -365,3 +382,42 @@ def test_report_cost_section_contains_timing():
 def test_report_no_cost_section_when_costs_omitted():
     report = bm._render_report(_MOCK_RESULTS, _MOCK_RUN_CONFIG)
     assert "## Costs" not in report
+
+
+# ---------------------------------------------------------------------------
+# _render_report — extraction_paths in run config section
+# ---------------------------------------------------------------------------
+
+_MOCK_EXTRACTION_PATHS = [
+    {"vision_model": "claude-sonnet-4-6"},
+    {"vision_model": "claude-sonnet-4-6", "dpi": 300},
+    {"ocr": "mistral", "structure_model": "gemini-2.5-flash-lite"},
+]
+
+
+def test_report_extraction_paths_section_present():
+    report = bm._render_report(_MOCK_RESULTS, _MOCK_RUN_CONFIG,
+                               extraction_paths=_MOCK_EXTRACTION_PATHS)
+    assert "Extraction paths" in report
+
+
+def test_report_extraction_paths_lists_all_labels():
+    report = bm._render_report(_MOCK_RESULTS, _MOCK_RUN_CONFIG,
+                               extraction_paths=_MOCK_EXTRACTION_PATHS)
+    assert "claude-sonnet-4-6" in report
+    assert "claude-sonnet-4-6 (300 DPI)" in report
+    assert "mistral-ocr+gemini-2.5-flash-lite" in report
+
+
+def test_report_extraction_paths_shows_dpi():
+    report = bm._render_report(_MOCK_RESULTS, _MOCK_RUN_CONFIG,
+                               extraction_paths=_MOCK_EXTRACTION_PATHS)
+    # Default DPI path shows default, non-default shows "(300 DPI)"
+    assert "150" in report   # default DPI shown somewhere
+    assert "300" in report   # non-default DPI shown
+
+
+def test_report_no_extraction_paths_section_when_omitted():
+    """When extraction_paths not passed, the section should not appear."""
+    report = bm._render_report(_MOCK_RESULTS, _MOCK_RUN_CONFIG)
+    assert "Extraction paths" not in report
