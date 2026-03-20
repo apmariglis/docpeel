@@ -124,7 +124,8 @@ class MistralProvider:
 
     def close(self) -> None:
         """Close the underlying HTTP client. Call before process exit to avoid SDK cleanup errors."""
-        self._client.close()
+        if hasattr(self._client, "close"):
+            self._client.close()
 
     @property
     def model_id(self) -> str:
