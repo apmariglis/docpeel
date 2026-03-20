@@ -22,6 +22,8 @@ docpeel works best on structured, book-like PDFs: printed text, tables, headings
 
 See [STATUS.md](STATUS.md) for a more detailed breakdown and planned improvements.
 
+Extraction quality is highly dependent on document layout, and the tool has been tested against a limited range of formats so far. If you try it on a document it handles poorly, opening an issue with a description of the layout and what went wrong is very welcome — it's the main way the extraction logic improves.
+
 ---
 
 ## Why vision LLMs?
