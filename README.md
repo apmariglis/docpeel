@@ -28,7 +28,9 @@ Extraction quality is highly dependent on document layout, and the tool has been
 
 ## Why vision LLMs?
 
-Traditional PDF parsers (pdfminer, PyMuPDF, etc.) fail on scanned PDFs, multi-column layouts, complex tables, and pages that mix text with illustrations. Vision LLMs read the page as an image, handling all of these naturally. The tradeoff is cost and latency — this tool is optimised to minimise both while maximising extraction quality.---
+Traditional PDF parsers (pdfminer, PyMuPDF, etc.) fail on scanned PDFs, multi-column layouts, complex tables, and pages that mix text with illustrations. Vision LLMs read the page as an image, handling all of these naturally. The tradeoff is cost and latency — this tool is optimised to minimise both while maximising extraction quality.
+
+---
 
 ## Features
 
@@ -202,32 +204,34 @@ python -m docpeel path/to/file.pdf [OPTIONS]
 
 | Flag | Default | Description |
 |---|---|---|
-| `--provider` | `anthropic` | LLM provider: `anthropic`, `gemini`, or `mistral` |
-| `--model` | provider default | Model ID to override the provider default |
-| `--dpi` | `150` | PDF render resolution. 150 is sufficient for most pages; use 200–300 for very small or dense text |
-
-### Provider defaults
-
-| Provider | Default model | Notes |
-|---|---|---|
-| `anthropic` | `claude-sonnet-4-0` | Full fallback chain; best quality |
-| `gemini` | `gemini-2.5-flash-lite` | Full fallback chain; lower cost |
-| `mistral` | `mistral-small-latest` | OCR model is always `mistral-ocr-latest`; no fallback chain |
+| `--vision-model MODEL` | — | Vision model for direct image-to-text extraction. Provider inferred from name prefix (`claude-*` → Anthropic, `gemini-*` → Gemini). |
+| `--ocr ENGINE` | — | OCR engine for a two-step pipeline (currently: `mistral`). Must be paired with `--structure-model`. Mutually exclusive with `--vision-model`. |
+| `--structure-model MODEL` | — | LLM for the structuring step (requires `--ocr`). Supports `mistral-*`, `gemini-*`, and `claude-*` models. |
+| `--pages PAGES` | all | Pages to extract. Accepts comma-separated numbers and/or ranges, e.g. `3`, `1,3,5`, `2-5`, `1,3,7-10`. |
+| `--dpi N` | `150` | PDF render resolution. 150 is sufficient for most pages; use 200–300 for very small or dense text. |
+| `--verbose` / `-v` | — | Enable debug logging (per-chunk detail, stitch steps). |
+| `--quiet` / `-q` | — | Suppress progress messages; show only warnings and errors. |
 
 ### Examples
 
 ```bash
-# Anthropic with default model
-docpeel book.pdf
+# Anthropic Sonnet (vision path)
+docpeel book.pdf --vision-model claude-sonnet-4-6
 
 # Gemini Flash at higher DPI for dense tables
-docpeel book.pdf --provider gemini --model gemini-2.5-flash --dpi 200
+docpeel book.pdf --vision-model gemini-2.5-flash --dpi 200
 
-# Mistral (cheapest option, good for clean scans)
-docpeel book.pdf --provider mistral
+# Mistral OCR + Mistral chat structuring (cheapest option)
+docpeel book.pdf --ocr mistral --structure-model mistral-small-latest
 
-# Anthropic Haiku for lower cost
-docpeel book.pdf --model claude-haiku-4-5-20251001
+# Mistral OCR + Gemini structuring
+docpeel book.pdf --ocr mistral --structure-model gemini-2.5-flash-lite
+
+# Mistral OCR + Claude structuring
+docpeel book.pdf --ocr mistral --structure-model claude-haiku-4-5-20251001
+
+# Extract only specific pages
+docpeel book.pdf --vision-model claude-sonnet-4-6 --pages 1,5,10-15
 ```
 
 ---
@@ -263,10 +267,16 @@ from docpeel.output import stream_outputs, write_report
 from pathlib import Path
 
 pdf = Path("book.pdf")
-provider = build_provider("anthropic")
 
+# Vision path (Anthropic or Gemini)
+provider = build_provider(vision_model="claude-sonnet-4-6")
+
+# OCR path (Mistral OCR + any structure model)
+# provider = build_provider(ocr="mistral", structure_model="mistral-small-latest")
+
+provider.resolve_model_id()
 pages = iter_pages(pdf, provider, dpi=150)
-saved, results = stream_outputs(pdf, pages, provider_name="anthropic")
+saved, results = stream_outputs(pdf, pages, provider_name=provider.model_id)
 write_report(pdf, results, saved)
 ```
 
